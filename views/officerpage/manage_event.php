@@ -1,0 +1,1096 @@
+<?php
+// MUST BE FIRST - NO SPACES BEFORE <?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+session_start();
+require "../../Connection/connection.php";
+
+// Auth check
+if (!isset($_SESSION['officer_id'])) {
+    header("Location: ../../Login.php");
+    exit();
+}
+
+// Handle Delete Action - BEFORE ANY OUTPUT
+if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
+    $event_id = intval($_GET['delete']);
+    
+    // Use prepared statements to avoid SQL errors
+    $tables = ['event_fines', 'attendance_schedule', 'attendance'];
+    
+    foreach ($tables as $table) {
+        // Check if table exists first
+        $check = $conn->query("SHOW TABLES LIKE '$table'");
+        if ($check->num_rows > 0) {
+            $conn->query("DELETE FROM $table WHERE event_id = $event_id");
+        }
+    }
+    
+    // Delete event
+    $conn->query("DELETE FROM events WHERE event_id = $event_id");
+    
+    // Redirect
+    header("Location: manage_event.php");
+    exit();
+}
+
+// Handle Create/Edit Action - BEFORE ANY OUTPUT
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $event_id = isset($_POST['event_id']) ? intval($_POST['event_id']) : 0;
+    $event_name = $conn->real_escape_string($_POST['event_name']);
+    $event_date = $conn->real_escape_string($_POST['event_date']);
+    $event_type = $conn->real_escape_string($_POST['event_type']);
+    $description = $conn->real_escape_string($_POST['description'] ?? '');
+    $location = $conn->real_escape_string($_POST['location'] ?? '');
+    
+    // Validate event_type
+    $valid_types = ['whole_day', 'half_day_am', 'half_day_pm'];
+    if (!in_array($event_type, $valid_types)) {
+        $event_type = 'whole_day';
+    }
+    
+    if ($event_id > 0) {
+        $conn->query("UPDATE events SET 
+            event_name = '$event_name',
+            event_date = '$event_date',
+            event_type = '$event_type',
+            description = '$description',
+            location = '$location'
+            WHERE event_id = $event_id");
+    } else {
+        $conn->query("INSERT INTO events (event_name, event_date, event_type, description, location, created_by) 
+            VALUES ('$event_name', '$event_date', '$event_type', '$description', '$location', {$_SESSION['officer_id']})");
+    }
+    header("Location: manage_event.php");
+    exit();
+}
+
+// Fetch data
+$events = $conn->query("
+    SELECT e.*, 
+           COUNT(DISTINCT a.student_id) as attendance_count,
+           (SELECT COUNT(*) FROM students) as total_students
+    FROM events e
+    LEFT JOIN attendance a ON e.event_id = a.event_id
+    GROUP BY e.event_id
+    ORDER BY e.event_date DESC
+");
+
+$edit_event = null;
+if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
+    $edit_id = intval($_GET['edit']);
+    $result = $conn->query("SELECT * FROM events WHERE event_id = $edit_id");
+    $edit_event = $result->fetch_assoc();
+}
+
+// NOW START OUTPUT
+require "../sidebar/officer_sidebar.php";
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Manager | BEAMS Officer Portal</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <style>
+    :root {
+        --primary: #6366f1;
+        --primary-dark: #4f46e5;
+        --secondary: #ec4899;
+        --success: #10b981;
+        --warning: #f59e0b;
+        --danger: #ef4444;
+        --info: #0ea5e9;
+        --dark: #1e293b;
+        --light: #f8fafc;
+        --sidebar-width: 280px;
+        --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        --card-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    body {
+        font-family: 'Inter', sans-serif;
+        background: #f1f5f9;
+        color: #334155;
+        margin-left: var(--sidebar-width);
+        min-height: 100vh;
+    }
+
+    /* Header Section */
+    .page-header {
+        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+        padding: 2rem;
+        color: white;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .page-header::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -10%;
+        width: 500px;
+        height: 500px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 50%;
+    }
+
+    .header-content {
+        position: relative;
+        z-index: 1;
+    }
+
+    .breadcrumb {
+        background: transparent;
+        padding: 0;
+        margin-bottom: 0.5rem;
+    }
+
+    .breadcrumb-item a {
+        color: rgba(255, 255, 255, 0.8);
+        text-decoration: none;
+    }
+
+    .breadcrumb-item.active {
+        color: white;
+    }
+
+    .page-title {
+        font-size: 2rem;
+        font-weight: 800;
+        margin-bottom: 0.5rem;
+    }
+
+    .page-subtitle {
+        opacity: 0.9;
+        font-size: 1rem;
+    }
+
+    /* Stats Cards */
+    .stats-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1.5rem;
+        padding: 2rem;
+        margin-top: -3rem;
+        position: relative;
+        z-index: 10;
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: 16px;
+        padding: 1.5rem;
+        box-shadow: var(--card-shadow);
+        transition: all 0.3s ease;
+        border: 1px solid #e2e8f0;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-5px);
+        box-shadow: var(--card-hover);
+    }
+
+    .stat-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .stat-card.primary .stat-icon {
+        background: #eef2ff;
+        color: var(--primary);
+    }
+
+    .stat-card.success .stat-icon {
+        background: #d1fae5;
+        color: var(--success);
+    }
+
+    .stat-card.warning .stat-icon {
+        background: #fef3c7;
+        color: var(--warning);
+    }
+
+    .stat-card.danger .stat-icon {
+        background: #fee2e2;
+        color: var(--danger);
+    }
+
+    .stat-value {
+        font-size: 2rem;
+        font-weight: 800;
+        color: var(--dark);
+        margin-bottom: 0.25rem;
+    }
+
+    .stat-label {
+        color: #64748b;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+
+    /* Main Content */
+    .main-content {
+        padding: 0 2rem 2rem;
+    }
+
+    .content-card {
+        background: white;
+        border-radius: 16px;
+        box-shadow: var(--card-shadow);
+        border: 1px solid #e2e8f0;
+        overflow: hidden;
+    }
+
+    .card-header {
+        padding: 1.5rem;
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #fafafa;
+    }
+
+    .card-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--dark);
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Event Grid */
+    .events-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 1.5rem;
+        padding: 1.5rem;
+    }
+
+    .event-card {
+        background: white;
+        border-radius: 16px;
+        border: 1px solid #e2e8f0;
+        overflow: hidden;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+
+    .event-card:hover {
+        transform: translateY(-5px);
+        box-shadow: var(--card-hover);
+        border-color: var(--primary);
+    }
+
+    .event-header {
+        padding: 1.5rem;
+        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        border-bottom: 1px solid #e2e8f0;
+        position: relative;
+    }
+
+    .event-type-badge {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        padding: 0.375rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .badge-whole {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .badge-half-am {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .badge-half-pm {
+        background: #e0f2fe;
+        color: #0369a1;
+    }
+
+    .event-date {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .date-box {
+        background: white;
+        border-radius: 12px;
+        padding: 0.75rem 1rem;
+        text-align: center;
+        min-width: 60px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .date-day {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: var(--primary);
+        line-height: 1;
+    }
+
+    .date-month {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+    }
+
+    .event-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--dark);
+        margin-bottom: 0.5rem;
+    }
+
+    .event-location {
+        color: #64748b;
+        font-size: 0.875rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .event-body {
+        padding: 1.5rem;
+    }
+
+    .event-description {
+        color: #64748b;
+        font-size: 0.875rem;
+        line-height: 1.6;
+        margin-bottom: 1.5rem;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .event-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .event-stat {
+        text-align: center;
+        padding: 0.75rem;
+        background: #f8fafc;
+        border-radius: 8px;
+    }
+
+    .event-stat-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--dark);
+    }
+
+    .event-stat-label {
+        font-size: 0.75rem;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .progress {
+        height: 6px;
+        background: #e2e8f0;
+        border-radius: 3px;
+        margin-bottom: 1.5rem;
+    }
+
+    .progress-bar {
+        background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
+        border-radius: 3px;
+    }
+
+    .event-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .btn-event {
+        flex: 1;
+        padding: 0.625rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+        border: none;
+        cursor: pointer;
+        text-decoration: none;
+        text-align: center;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .btn-view {
+        background: #eef2ff;
+        color: var(--primary);
+    }
+
+    .btn-view:hover {
+        background: var(--primary);
+        color: white;
+    }
+
+    .btn-edit {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .btn-edit:hover {
+        background: #f59e0b;
+        color: white;
+    }
+
+    .btn-delete {
+        background: #fee2e2;
+        color: #dc2626;
+    }
+
+    .btn-delete:hover {
+        background: #ef4444;
+        color: white;
+    }
+
+    /* Modal Styles */
+    .modal-content {
+        border-radius: 16px;
+        border: none;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
+
+    .modal-header {
+        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+        color: white;
+        border-radius: 16px 16px 0 0;
+        padding: 1.5rem;
+        border: none;
+    }
+
+    .modal-title {
+        font-weight: 700;
+        font-size: 1.25rem;
+    }
+
+    .btn-close {
+        filter: brightness(0) invert(1);
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+    }
+
+    .form-label {
+        font-weight: 600;
+        color: var(--dark);
+        font-size: 0.875rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .form-control,
+    .form-select {
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        padding: 0.75rem 1rem;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+    }
+
+    .form-control:focus,
+    .form-select:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+        border: none;
+        padding: 0.75rem 1.5rem;
+        border-radius: 10px;
+        font-weight: 600;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.4);
+    }
+
+    /* Event Type Selection Cards */
+    .event-type-selector {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .event-type-option {
+        position: relative;
+        cursor: pointer;
+    }
+
+    .event-type-option input[type="radio"] {
+        position: absolute;
+        opacity: 0;
+    }
+
+    .event-type-card {
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.25rem;
+        text-align: center;
+        transition: all 0.3s ease;
+        background: white;
+    }
+
+    .event-type-option input[type="radio"]:checked+.event-type-card {
+        border-color: var(--primary);
+        background: #eef2ff;
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+    }
+
+    .event-type-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 0.75rem;
+        font-size: 1.5rem;
+    }
+
+    .event-type-option:nth-child(1) .event-type-icon {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .event-type-option:nth-child(2) .event-type-icon {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .event-type-option:nth-child(3) .event-type-icon {
+        background: #e0f2fe;
+        color: #0369a1;
+    }
+
+    .event-type-label {
+        font-weight: 600;
+        font-size: 0.875rem;
+        color: var(--dark);
+        margin-bottom: 0.25rem;
+    }
+
+    .event-type-desc {
+        font-size: 0.75rem;
+        color: #64748b;
+    }
+
+    /* Empty State */
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+    }
+
+    .empty-icon {
+        width: 120px;
+        height: 120px;
+        background: #f1f5f9;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 1.5rem;
+        font-size: 3rem;
+        color: #cbd5e1;
+    }
+
+    .empty-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--dark);
+        margin-bottom: 0.5rem;
+    }
+
+    .empty-text {
+        color: #64748b;
+        margin-bottom: 1.5rem;
+    }
+
+    /* Floating Action Button */
+    .fab {
+        position: fixed;
+        bottom: 2rem;
+        right: 2rem;
+        width: 60px;
+        height: 60px;
+        background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 1.5rem;
+        box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.5);
+        cursor: pointer;
+        transition: all 0.3s ease;
+        border: none;
+        z-index: 1000;
+    }
+
+    .fab:hover {
+        transform: scale(1.1) rotate(90deg);
+        box-shadow: 0 20px 35px -5px rgba(99, 102, 241, 0.6);
+    }
+
+    /* Success Toast */
+    .toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1055;
+    }
+
+    .toast {
+        border-radius: 12px;
+        border: none;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+    }
+
+    .toast-header {
+        border-radius: 12px 12px 0 0;
+        background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
+        color: white;
+    }
+
+    /* Responsive */
+    @media (max-width: 1200px) {
+        .stats-row {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @media (max-width: 991px) {
+        body {
+            margin-left: 0;
+        }
+
+        .stats-row {
+            grid-template-columns: 1fr;
+            margin-top: 0;
+        }
+
+        .events-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .event-type-selector {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Animations */
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .animate-in {
+        animation: fadeInUp 0.5s ease forwards;
+    }
+
+    .delay-1 {
+        animation-delay: 0.1s;
+    }
+
+    .delay-2 {
+        animation-delay: 0.2s;
+    }
+
+    .delay-3 {
+        animation-delay: 0.3s;
+    }
+
+    .delay-4 {
+        animation-delay: 0.4s;
+    }
+    </style>
+</head>
+
+<body>
+
+    <!-- Page Header -->
+    <div class="page-header">
+        <div class="header-content">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="officer_dashboard.php"><i class="fas fa-home"></i>
+                            Dashboard</a></li>
+                    <li class="breadcrumb-item active" aria-current="page">Event Manager</li>
+                </ol>
+            </nav>
+            <h1 class="page-title"><i class="fas fa-calendar-alt me-3"></i>Event Manager</h1>
+            <p class="page-subtitle">Create, manage, and track all your events in one place</p>
+        </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="stats-row">
+        <div class="stat-card primary animate-in">
+            <div class="stat-icon">
+                <i class="fas fa-calendar-check"></i>
+            </div>
+            <div class="stat-value"><?php echo $events->num_rows; ?></div>
+            <div class="stat-label">Total Events</div>
+        </div>
+        <div class="stat-card success animate-in delay-1">
+            <div class="stat-icon">
+                <i class="fas fa-calendar-day"></i>
+            </div>
+            <div class="stat-value">
+                <?php 
+                $upcoming = $conn->query("SELECT COUNT(*) as count FROM events WHERE event_date >= CURDATE()")->fetch_assoc()['count'];
+                echo $upcoming;
+                ?>
+            </div>
+            <div class="stat-label">Upcoming Events</div>
+        </div>
+        <div class="stat-card warning animate-in delay-2">
+            <div class="stat-icon">
+                <i class="fas fa-users"></i>
+            </div>
+            <div class="stat-value">
+                <?php
+                $total_attendance = $conn->query("SELECT COUNT(DISTINCT student_id) as count FROM attendance")->fetch_assoc()['count'];
+                echo $total_attendance;
+                ?>
+            </div>
+            <div class="stat-label">Total Attendance</div>
+        </div>
+        <div class="stat-card danger animate-in delay-3">
+            <div class="stat-icon">
+                <i class="fas fa-clock"></i>
+            </div>
+            <div class="stat-value">
+                <?php
+                $past = $conn->query("SELECT COUNT(*) as count FROM events WHERE event_date < CURDATE()")->fetch_assoc()['count'];
+                echo $past;
+                ?>
+            </div>
+            <div class="stat-label">Past Events</div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="content-card animate-in delay-2">
+            <div class="card-header">
+                <h3 class="card-title">
+                    <i class="fas fa-list-ul text-primary"></i>
+                    All Events
+                </h3>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#eventModal"
+                    onclick="resetForm()">
+                    <i class="fas fa-plus me-2"></i>Create New Event
+                </button>
+            </div>
+
+            <div class="events-grid">
+                <?php if ($events->num_rows > 0): ?>
+                <?php while($event = $events->fetch_assoc()): 
+                        $date = strtotime($event['event_date']);
+                        $day = date('d', $date);
+                        $month = date('M', $date);
+                        $is_past = $event['event_date'] < date('Y-m-d');
+                        $attendance_rate = $event['total_students'] > 0 ? 
+                            round(($event['attendance_count'] / $event['total_students']) * 100) : 0;
+                        
+                        // Determine badge class and label
+                        $badge_class = '';
+                        $badge_label = '';
+                        switch($event['event_type']) {
+                            case 'whole_day':
+                                $badge_class = 'badge-whole';
+                                $badge_label = 'Whole Day';
+                                break;
+                            case 'half_day_am':
+                                $badge_class = 'badge-half-am';
+                                $badge_label = 'Half Day - AM';
+                                break;
+                            case 'half_day_pm':
+                                $badge_class = 'badge-half-pm';
+                                $badge_label = 'Half Day - PM';
+                                break;
+                            default:
+                                $badge_class = 'badge-whole';
+                                $badge_label = 'Whole Day';
+                        }
+                    ?>
+                <div class="event-card">
+                    <div class="event-header">
+                        <span class="event-type-badge <?php echo $badge_class; ?>">
+                            <?php echo $badge_label; ?>
+                        </span>
+                        <div class="event-date">
+                            <div class="date-box">
+                                <div class="date-day"><?php echo $day; ?></div>
+                                <div class="date-month"><?php echo $month; ?></div>
+                            </div>
+                            <div>
+                                <h4 class="event-title"><?php echo htmlspecialchars($event['event_name']); ?></h4>
+                                <div class="event-location">
+                                    <i class="fas fa-map-marker-alt"></i>
+                                    <?php echo htmlspecialchars($event['location'] ?: 'No location set'); ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="event-body">
+                        <p class="event-description">
+                            <?php echo htmlspecialchars($event['description'] ?: 'No description available for this event.'); ?>
+                        </p>
+
+                        <div class="event-stats">
+                            <div class="event-stat">
+                                <div class="event-stat-value"><?php echo $event['attendance_count']; ?></div>
+                                <div class="event-stat-label">Attended</div>
+                            </div>
+                            <div class="event-stat">
+                                <div class="event-stat-value"><?php echo $attendance_rate; ?>%</div>
+                                <div class="event-stat-label">Rate</div>
+                            </div>
+                        </div>
+
+                        <div class="progress">
+                            <div class="progress-bar" style="width: <?php echo $attendance_rate; ?>%"></div>
+                        </div>
+
+                        <div class="event-actions">
+                            <a href="event_details.php?id=<?php echo $event['event_id']; ?>" class="btn-event btn-view">
+                                <i class="fas fa-eye"></i> View
+                            </a>
+                            <button class="btn-event btn-edit"
+                                onclick="editEvent(<?php echo htmlspecialchars(json_encode($event)); ?>)">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <a href="?delete=<?php echo $event['event_id']; ?>" class="btn-event btn-delete"
+                                onclick="return confirm('Are you sure you want to delete this event?')">
+                                <i class="fas fa-trash"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <?php endwhile; ?>
+                <?php else: ?>
+                <div class="empty-state">
+                    <div class="empty-icon">
+                        <i class="fas fa-calendar-plus"></i>
+                    </div>
+                    <h3 class="empty-title">No Events Yet</h3>
+                    <p class="empty-text">Start by creating your first event to manage attendance and track
+                        participation.</p>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#eventModal"
+                        onclick="resetForm()">
+                        <i class="fas fa-plus me-2"></i>Create Your First Event
+                    </button>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Action Button (Mobile) -->
+    <button class="fab d-lg-none" data-bs-toggle="modal" data-bs-target="#eventModal" onclick="resetForm()">
+        <i class="fas fa-plus"></i>
+    </button>
+
+    <!-- Event Modal -->
+    <div class="modal fade" id="eventModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle">
+                        <i class="fas fa-calendar-plus me-2"></i>Create New Event
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="POST" action="" id="eventForm">
+                    <div class="modal-body">
+                        <input type="hidden" name="event_id" id="event_id" value="0">
+
+                        <div class="mb-3">
+                            <label class="form-label">Event Name</label>
+                            <input type="text" class="form-control" name="event_name" id="event_name" required
+                                placeholder="Enter event name">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Event Date</label>
+                            <input type="date" class="form-control" name="event_date" id="event_date" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Event Type</label>
+                            <div class="event-type-selector">
+                                <label class="event-type-option">
+                                    <input type="radio" name="event_type" value="whole_day" checked>
+                                    <div class="event-type-card">
+                                        <div class="event-type-icon">
+                                            <i class="fas fa-sun"></i>
+                                        </div>
+                                        <div class="event-type-label">Whole Day</div>
+                                        <div class="event-type-desc">Full day event</div>
+                                    </div>
+                                </label>
+                                <label class="event-type-option">
+                                    <input type="radio" name="event_type" value="half_day_am">
+                                    <div class="event-type-card">
+                                        <div class="event-type-icon">
+                                            <i class="fas fa-cloud-sun"></i>
+                                        </div>
+                                        <div class="event-type-label">Half Day - AM</div>
+                                        <div class="event-type-desc">Morning session</div>
+                                    </div>
+                                </label>
+                                <label class="event-type-option">
+                                    <input type="radio" name="event_type" value="half_day_pm">
+                                    <div class="event-type-card">
+                                        <div class="event-type-icon">
+                                            <i class="fas fa-moon"></i>
+                                        </div>
+                                        <div class="event-type-label">Half Day - PM</div>
+                                        <div class="event-type-desc">Afternoon session</div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Location</label>
+                            <input type="text" class="form-control" name="location" id="location"
+                                placeholder="Enter event location">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" name="description" id="description" rows="3"
+                                placeholder="Enter event description"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-0 pt-0">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-2"></i>Save Event
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // Edit Event Function
+    function editEvent(event) {
+        document.getElementById('event_id').value = event.event_id;
+        document.getElementById('event_name').value = event.event_name;
+        document.getElementById('event_date').value = event.event_date;
+        document.getElementById('location').value = event.location || '';
+        document.getElementById('description').value = event.description || '';
+
+        // Set event type radio button
+        const eventType = event.event_type || 'whole_day';
+        const radio = document.querySelector(`input[name="event_type"][value="${eventType}"]`);
+        if (radio) {
+            radio.checked = true;
+        }
+
+        document.getElementById('modalTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Event';
+
+        const modal = new bootstrap.Modal(document.getElementById('eventModal'));
+        modal.show();
+    }
+
+    // Reset form when creating new event
+    function resetForm() {
+        document.getElementById('eventForm').reset();
+        document.getElementById('event_id').value = '0';
+        document.getElementById('modalTitle').innerHTML = '<i class="fas fa-calendar-plus me-2"></i>Create New Event';
+        // Set default radio
+        document.querySelector('input[name="event_type"][value="whole_day"]').checked = true;
+    }
+
+    // Reset form when modal is closed
+    document.getElementById('eventModal').addEventListener('hidden.bs.modal', function() {
+        resetForm();
+    });
+
+    // Set minimum date to today
+    document.getElementById('event_date').min = new Date().toISOString().split('T')[0];
+
+    // Form validation
+    document.getElementById('eventForm').addEventListener('submit', function(e) {
+        const eventName = document.getElementById('event_name').value.trim();
+        const eventDate = document.getElementById('event_date').value;
+
+        if (!eventName) {
+            e.preventDefault();
+            alert('Please enter an event name');
+            return false;
+        }
+
+        if (!eventDate) {
+            e.preventDefault();
+            alert('Please select an event date');
+            return false;
+        }
+    });
+    </script>
+</body>
+
+</html>
