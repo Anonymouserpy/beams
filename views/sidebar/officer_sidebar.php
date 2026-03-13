@@ -16,7 +16,7 @@ if (!isset($_SESSION['officer_id'])) {
 
 <style>
 :root {
-    --sidebar-width: 280px;
+    --sidebar-width: 240px;
     --primary-blue: #33A1E0;
     --dark-bg: #1a1f2e;
     --hover-bg: rgba(255, 255, 255, 0.08);
@@ -311,7 +311,7 @@ body {
 
 /* Scrollbar Styling */
 .sidebar::-webkit-scrollbar {
-    width: 6px;
+    width: 4px;
 }
 
 .sidebar::-webkit-scrollbar-track {

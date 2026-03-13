@@ -30,7 +30,6 @@ $paid = $conn->query("SELECT SUM(amount) as total FROM student_fines WHERE statu
 $paid_fines = $paid->fetch_assoc()['total'] ?? 0;
 
 /* UPCOMING EVENTS */
-/* UPCOMING EVENTS - Get officer name separately */
 $upcoming = $conn->query("
     SELECT e.event_id, e.event_name, e.event_date, e.event_type, 
            e.description, e.location, e.created_by, e.created_at,
@@ -64,8 +63,8 @@ $upcoming = $conn->query("
         --success-gradient: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
         --warning-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-        --card-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.1);
-        --hover-shadow: 0 20px 60px -15px rgba(0, 0, 0, 0.15);
+        --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08);
+        --hover-shadow: 0 8px 30px -5px rgba(0, 0, 0, 0.12);
     }
 
     * {
@@ -74,17 +73,30 @@ $upcoming = $conn->query("
         box-sizing: border-box;
     }
 
+    html {
+        font-size: 14px;
+        /* Base font size reduction for 100% zoom match */
+    }
+
     body {
         font-family: 'Inter', sans-serif;
         background: #f0f2f5;
         color: #2d3748;
-        line-height: 1.6;
+        line-height: 1.5;
+        overflow-x: hidden;
+    }
+
+    .main-content {
+        margin-left: 240px;
+        /* Sidebar width adjustment */
+        min-height: 100vh;
+        padding: 0;
     }
 
     .dashboard-header {
         background: white;
-        padding: 30px 0;
-        margin-bottom: 30px;
+        padding: 20px 30px;
+        margin-bottom: 20px;
         border-bottom: 1px solid #e2e8f0;
         position: relative;
         overflow: hidden;
@@ -96,7 +108,7 @@ $upcoming = $conn->query("
         top: 0;
         left: 0;
         right: 0;
-        height: 4px;
+        height: 3px;
         background: var(--primary-gradient);
     }
 
@@ -107,48 +119,109 @@ $upcoming = $conn->query("
     }
 
     .welcome-text h1 {
-        font-size: 2rem;
-        font-weight: 800;
+        font-size: 1.75rem;
+        font-weight: 700;
         color: #1a202c;
-        margin-bottom: 5px;
+        margin-bottom: 4px;
     }
 
     .welcome-text p {
         color: #718096;
-        font-size: 1rem;
+        font-size: 0.9rem;
         margin: 0;
     }
 
     .date-badge {
-        background: #edf2f7;
-        padding: 12px 20px;
-        border-radius: 12px;
+        background: #f7fafc;
+        padding: 10px 16px;
+        border-radius: 10px;
         font-weight: 600;
         color: #4a5568;
         display: flex;
         align-items: center;
         gap: 8px;
+        font-size: 0.9rem;
+        border: 1px solid #e2e8f0;
     }
 
+    .container {
+        max-width: 1400px;
+        padding: 0 25px;
+    }
+
+    /* Quick Actions - Compact horizontal layout */
+    .quick-actions {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+
+    .action-btn {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 16px 12px;
+        text-align: center;
+        text-decoration: none;
+        color: #4a5568;
+        transition: all 0.25s ease;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .action-btn:hover {
+        border-color: #667eea;
+        color: #667eea;
+        transform: translateY(-2px);
+        box-shadow: var(--card-shadow);
+        text-decoration: none;
+    }
+
+    .action-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: #f7fafc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+        transition: all 0.25s ease;
+    }
+
+    .action-btn:hover .action-icon {
+        background: #667eea;
+        color: white;
+    }
+
+    .action-label {
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+
+    /* Stats Grid - Compact cards */
     .stats-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 24px;
-        margin-bottom: 30px;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        margin-bottom: 20px;
     }
 
     .stat-card {
         background: white;
-        border-radius: 20px;
-        padding: 24px;
+        border-radius: 12px;
+        padding: 18px;
         position: relative;
         overflow: hidden;
-        transition: all 0.3s ease;
+        transition: all 0.25s ease;
         border: 1px solid #e2e8f0;
     }
 
     .stat-card:hover {
-        transform: translateY(-5px);
+        transform: translateY(-3px);
         box-shadow: var(--hover-shadow);
     }
 
@@ -158,7 +231,7 @@ $upcoming = $conn->query("
         top: 0;
         left: 0;
         width: 100%;
-        height: 4px;
+        height: 3px;
     }
 
     .stat-card.primary::before {
@@ -181,17 +254,17 @@ $upcoming = $conn->query("
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
-        margin-bottom: 16px;
+        margin-bottom: 12px;
     }
 
     .stat-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 12px;
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.5rem;
+        font-size: 1.1rem;
     }
 
     .stat-card.primary .stat-icon {
@@ -215,149 +288,156 @@ $upcoming = $conn->query("
     }
 
     .stat-trend {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         font-weight: 600;
-        padding: 4px 8px;
-        border-radius: 20px;
+        padding: 3px 8px;
+        border-radius: 12px;
         background: #f7fafc;
         color: #48bb78;
     }
 
     .stat-value {
-        font-size: 2.5rem;
-        font-weight: 800;
+        font-size: 1.75rem;
+        font-weight: 700;
         color: #1a202c;
         margin-bottom: 4px;
         line-height: 1;
     }
 
     .stat-label {
-        font-size: 0.875rem;
+        font-size: 0.8rem;
         color: #718096;
         font-weight: 500;
     }
 
+    /* Content Grid */
     .content-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 24px;
-        margin-bottom: 30px;
-    }
-
-    @media (max-width: 992px) {
-        .content-grid {
-            grid-template-columns: 1fr;
-        }
+        gap: 20px;
+        margin-bottom: 20px;
     }
 
     .content-card {
         background: white;
-        border-radius: 20px;
+        border-radius: 12px;
         border: 1px solid #e2e8f0;
         overflow: hidden;
     }
 
     .card-header-custom {
-        padding: 24px 24px 0;
+        padding: 18px 20px 0;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 20px;
+        margin-bottom: 15px;
     }
 
     .card-title {
-        font-size: 1.25rem;
+        font-size: 1rem;
         font-weight: 700;
         color: #1a202c;
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
     }
 
     .card-action {
         color: #667eea;
         font-weight: 600;
-        font-size: 0.875rem;
+        font-size: 0.8rem;
         text-decoration: none;
         display: flex;
         align-items: center;
-        gap: 5px;
-        transition: gap 0.3s ease;
+        gap: 4px;
+        transition: gap 0.2s ease;
     }
 
     .card-action:hover {
-        gap: 10px;
+        gap: 8px;
         color: #764ba2;
     }
 
+    /* Events List - Compact items */
     .events-list {
-        padding: 0 24px 24px;
+        padding: 0 20px 20px;
     }
 
     .event-item {
         display: flex;
         align-items: center;
-        padding: 16px;
-        border-radius: 12px;
-        transition: all 0.3s ease;
-        margin-bottom: 12px;
+        padding: 12px;
+        border-radius: 10px;
+        transition: all 0.2s ease;
+        margin-bottom: 10px;
         border: 1px solid #e2e8f0;
+        background: #fafbfc;
     }
 
     .event-item:hover {
         background: #f7fafc;
         border-color: #cbd5e0;
-        transform: translateX(5px);
+        transform: translateX(3px);
     }
 
     .event-date {
         text-align: center;
-        min-width: 60px;
-        margin-right: 16px;
+        min-width: 45px;
+        margin-right: 12px;
+        padding: 6px;
+        background: white;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
     }
 
     .event-day {
-        font-size: 1.5rem;
-        font-weight: 800;
+        font-size: 1.25rem;
+        font-weight: 700;
         color: #667eea;
         line-height: 1;
     }
 
     .event-month {
-        font-size: 0.75rem;
-        font-weight: 600;
+        font-size: 0.65rem;
+        font-weight: 700;
         color: #a0aec0;
         text-transform: uppercase;
+        margin-top: 2px;
     }
 
     .event-details {
         flex: 1;
+        min-width: 0;
     }
 
     .event-name {
-        font-weight: 700;
+        font-weight: 600;
         color: #2d3748;
-        margin-bottom: 4px;
-        font-size: 1rem;
+        margin-bottom: 3px;
+        font-size: 0.9rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .event-meta {
         display: flex;
-        gap: 12px;
-        font-size: 0.875rem;
+        gap: 8px;
+        font-size: 0.75rem;
         color: #718096;
+        align-items: center;
     }
 
     .event-badge {
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.65rem;
+        font-weight: 700;
         text-transform: uppercase;
     }
 
     .badge-whole {
-        background: #e6fffa;
+        background: #d1fae5;
         color: #047857;
     }
 
@@ -366,72 +446,275 @@ $upcoming = $conn->query("
         color: #d97706;
     }
 
+    /* View Button */
+    .btn-view-details {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.75rem;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .btn-view-details:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        color: white;
+    }
+
+    /* Chart Container */
     .chart-container {
-        padding: 0 24px 24px;
-        position: relative;
+        padding: 0 20px 20px;
     }
 
     .chart-wrapper {
         position: relative;
-        height: 300px;
+        height: 200px;
     }
 
-    .quick-actions {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 16px;
-        margin-bottom: 30px;
-    }
-
-    .action-btn {
-        background: white;
-        border: 2px solid #e2e8f0;
+    /* Modal Styles - Compact */
+    .modal-content {
+        border: none;
         border-radius: 16px;
-        padding: 20px;
-        text-align: center;
-        text-decoration: none;
-        color: #4a5568;
-        transition: all 0.3s ease;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        overflow: hidden;
+    }
+
+    .modal-header {
+        background: var(--primary-gradient);
+        color: white;
+        padding: 18px 24px;
+        border-bottom: none;
+    }
+
+    .modal-title {
+        font-weight: 700;
+        font-size: 1.25rem;
         display: flex;
-        flex-direction: column;
         align-items: center;
+        gap: 10px;
+    }
+
+    .btn-close-white {
+        filter: invert(1) grayscale(100%) brightness(200%);
+        opacity: 0.8;
+    }
+
+    .modal-body {
+        padding: 20px;
+        background: #fafbfc;
+    }
+
+    .event-detail-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
         gap: 12px;
+        margin-bottom: 16px;
     }
 
-    .action-btn:hover {
-        border-color: #667eea;
-        color: #667eea;
-        transform: translateY(-3px);
-        box-shadow: var(--card-shadow);
-        text-decoration: none;
+    .event-detail-item {
+        display: flex;
+        align-items: flex-start;
+        padding: 12px;
+        background: white;
+        border-radius: 10px;
+        border-left: 3px solid #667eea;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
     }
 
-    .action-icon {
-        width: 56px;
-        height: 56px;
-        border-radius: 16px;
-        background: #f7fafc;
+    .event-detail-icon {
+        width: 36px;
+        height: 36px;
+        background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+        border-radius: 8px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.5rem;
-        transition: all 0.3s ease;
+        margin-right: 10px;
+        color: #667eea;
+        font-size: 1rem;
+        flex-shrink: 0;
     }
 
-    .action-btn:hover .action-icon {
-        background: #667eea;
+    .event-detail-content {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .event-detail-label {
+        font-size: 0.7rem;
+        color: #718096;
+        font-weight: 700;
+        margin-bottom: 2px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .event-detail-value {
+        font-size: 0.85rem;
+        color: #1a202c;
+        font-weight: 600;
+        word-wrap: break-word;
+    }
+
+    .event-description-section {
+        background: white;
+        border-radius: 10px;
+        padding: 16px;
+        border-top: 3px solid #764ba2;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+    }
+
+    .event-description-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: #764ba2;
+        font-weight: 700;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .event-description-text {
+        color: #4a5568;
+        line-height: 1.6;
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+    }
+
+    .modal-footer {
+        border-top: 1px solid #e2e8f0;
+        padding: 16px 20px;
+        background: white;
+    }
+
+    .btn-modal-close {
+        background: #e2e8f0;
+        color: #4a5568;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        transition: all 0.2s ease;
+    }
+
+    .btn-modal-close:hover {
+        background: #cbd5e0;
+        color: #2d3748;
+    }
+
+    .btn-modal-edit {
+        background: var(--primary-gradient);
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        transition: all 0.2s ease;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn-modal-edit:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
         color: white;
     }
 
-    .action-label {
-        font-weight: 600;
-        font-size: 0.95rem;
+    /* Empty State */
+    .empty-state {
+        text-align: center;
+        padding: 30px;
+        color: #a0aec0;
     }
 
+    .empty-state i {
+        font-size: 2.5rem;
+        margin-bottom: 12px;
+        display: block;
+    }
+
+    .empty-state p {
+        font-size: 0.9rem;
+        margin-bottom: 12px;
+    }
+
+    /* Responsive */
+    @media (max-width: 1200px) {
+        .quick-actions {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @media (max-width: 992px) {
+        .main-content {
+            margin-left: 0;
+        }
+
+        .content-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .event-detail-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 768px) {
+
+        .quick-actions,
+        .stats-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .header-content {
+            flex-direction: column;
+            gap: 12px;
+            text-align: center;
+        }
+
+        .welcome-text h1 {
+            font-size: 1.4rem;
+        }
+
+        .event-item {
+            flex-direction: column;
+            text-align: center;
+            gap: 10px;
+        }
+
+        .event-date {
+            margin-right: 0;
+        }
+
+        .event-meta {
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+    }
+
+    /* Animations */
     @keyframes fadeInUp {
         from {
             opacity: 0;
-            transform: translateY(20px);
+            transform: translateY(15px);
         }
 
         to {
@@ -441,7 +724,7 @@ $upcoming = $conn->query("
     }
 
     .animate-in {
-        animation: fadeInUp 0.6s ease forwards;
+        animation: fadeInUp 0.5s ease forwards;
     }
 
     .delay-1 {
@@ -458,239 +741,6 @@ $upcoming = $conn->query("
 
     .delay-4 {
         animation-delay: 0.4s;
-    }
-
-    .empty-state {
-        text-align: center;
-        padding: 40px;
-        color: #a0aec0;
-    }
-
-    .empty-state i {
-        font-size: 3rem;
-        margin-bottom: 16px;
-        display: block;
-    }
-
-    /* View Button Styles */
-    .btn-view-details {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: 0.875rem;
-        transition: all 0.3s ease;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-    }
-
-    .btn-view-details:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        color: white;
-    }
-
-    /* Modal Styles */
-    .modal-content {
-        border: none;
-        border-radius: 20px;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-        overflow: hidden;
-    }
-
-    .modal-header {
-        background: var(--primary-gradient);
-        color: white;
-        padding: 24px;
-        border-bottom: none;
-    }
-
-    .modal-title {
-        font-weight: 700;
-        font-size: 1.5rem;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .btn-close-white {
-        filter: invert(1) grayscale(100%) brightness(200%);
-        opacity: 0.8;
-    }
-
-    .btn-close-white:hover {
-        opacity: 1;
-    }
-
-    .modal-body {
-        padding: 24px;
-        background: #fafbfc;
-    }
-
-    .event-detail-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 16px;
-        margin-bottom: 20px;
-    }
-
-    @media (max-width: 768px) {
-        .event-detail-grid {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    .event-detail-item {
-        display: flex;
-        align-items: flex-start;
-        padding: 16px;
-        background: white;
-        border-radius: 12px;
-        border-left: 4px solid #667eea;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-        transition: transform 0.2s ease;
-    }
-
-    .event-detail-item:hover {
-        transform: translateX(4px);
-    }
-
-    .event-detail-icon {
-        width: 44px;
-        height: 44px;
-        background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-right: 14px;
-        color: #667eea;
-        font-size: 1.3rem;
-        flex-shrink: 0;
-    }
-
-    .event-detail-content {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .event-detail-label {
-        font-size: 0.75rem;
-        color: #718096;
-        font-weight: 700;
-        margin-bottom: 4px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .event-detail-value {
-        font-size: 0.95rem;
-        color: #1a202c;
-        font-weight: 600;
-        word-wrap: break-word;
-    }
-
-    .event-description-section {
-        background: white;
-        border-radius: 12px;
-        padding: 20px;
-        border-top: 4px solid #764ba2;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-    }
-
-    .event-description-header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 12px;
-        color: #764ba2;
-        font-weight: 700;
-        font-size: 0.875rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .event-description-text {
-        color: #4a5568;
-        line-height: 1.7;
-        font-size: 0.95rem;
-        white-space: pre-wrap;
-    }
-
-    .modal-footer {
-        border-top: 1px solid #e2e8f0;
-        padding: 20px 24px;
-        background: white;
-    }
-
-    .btn-modal-close {
-        background: #e2e8f0;
-        color: #4a5568;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-    }
-
-    .btn-modal-close:hover {
-        background: #cbd5e0;
-        color: #2d3748;
-    }
-
-    .btn-modal-edit {
-        background: var(--primary-gradient);
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .btn-modal-edit:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        color: white;
-    }
-
-    @media (max-width: 768px) {
-        .header-content {
-            flex-direction: column;
-            gap: 20px;
-            text-align: center;
-        }
-
-        .welcome-text h1 {
-            font-size: 1.5rem;
-        }
-
-        .stat-value {
-            font-size: 2rem;
-        }
-
-        .event-item {
-            flex-direction: column;
-            text-align: center;
-            gap: 12px;
-        }
-
-        .event-date {
-            margin-right: 0;
-        }
-
-        .event-meta {
-            justify-content: center;
-            flex-wrap: wrap;
-        }
     }
     </style>
 </head>
@@ -791,7 +841,6 @@ $upcoming = $conn->query("
                             $month = date('M', $date);
                             $is_whole = $row['event_type'] == 'whole_day';
                             
-                            // Prepare data for modal
                             $eventData = [
                                 'id' => $row['event_id'],
                                 'name' => $row['event_name'],
@@ -801,7 +850,7 @@ $upcoming = $conn->query("
                                 'description' => $row['description'] ?? 'No description available for this event.',
                                 'location' => $row['location'] ?? 'Location not specified',
                                 'created_by' => !empty($row['full_name']) ? $row['full_name'] : ('Officer #' . $row['created_by']),
-                                'created_at' => date('M d, Y \a\t h:i A', strtotime($row['created_at'])),
+                                'created_at' => date('M d, Y \\a\\t h:i A', strtotime($row['created_at'])),
                                 'attendance' => $row['attendance_count']
                             ];
                         ?>
@@ -820,7 +869,6 @@ $upcoming = $conn->query("
                                     </span>
                                 </div>
                             </div>
-                            <!-- VIEW BUTTON FOR MODAL -->
                             <button type="button" class="btn-view-details" data-bs-toggle="modal"
                                 data-bs-target="#eventViewModal"
                                 data-event='<?php echo htmlspecialchars(json_encode($eventData), ENT_QUOTES, 'UTF-8'); ?>'>
@@ -832,7 +880,7 @@ $upcoming = $conn->query("
                         <div class="empty-state">
                             <i class="bi bi-calendar-x"></i>
                             <p>No upcoming events scheduled</p>
-                            <a href="create_event.php" class="btn btn-primary mt-2">Create Event</a>
+                            <a href="create_event.php" class="btn btn-primary btn-sm mt-2">Create Event</a>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -846,7 +894,7 @@ $upcoming = $conn->query("
                         </h3>
                         <div class="dropdown">
                             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
-                                data-bs-toggle="dropdown">
+                                data-bs-toggle="dropdown" style="font-size: 0.8rem; padding: 4px 12px;">
                                 This Month
                             </button>
                             <ul class="dropdown-menu">
@@ -860,16 +908,16 @@ $upcoming = $conn->query("
                         <div class="chart-wrapper">
                             <canvas id="fineChart"></canvas>
                         </div>
-                        <div class="row mt-4 text-center">
+                        <div class="row mt-3 text-center">
                             <div class="col-6">
-                                <div class="text-success fw-bold fs-4">Rs <?php echo number_format($paid_fines, 2); ?>
-                                </div>
-                                <div class="text-muted small">Collected</div>
+                                <div class="text-success fw-bold" style="font-size: 1.1rem;">Rs
+                                    <?php echo number_format($paid_fines, 2); ?></div>
+                                <div class="text-muted small" style="font-size: 0.75rem;">Collected</div>
                             </div>
                             <div class="col-6">
-                                <div class="text-danger fw-bold fs-4">Rs <?php echo number_format($pending_fines, 2); ?>
-                                </div>
-                                <div class="text-muted small">Pending</div>
+                                <div class="text-danger fw-bold" style="font-size: 1.1rem;">Rs
+                                    <?php echo number_format($pending_fines, 2); ?></div>
+                                <div class="text-muted small" style="font-size: 0.75rem;">Pending</div>
                             </div>
                         </div>
                     </div>
@@ -991,18 +1039,16 @@ $upcoming = $conn->query("
             const button = event.relatedTarget;
             const eventData = JSON.parse(button.getAttribute('data-event'));
 
-            // Populate modal fields
             document.getElementById('modalEventTitle').textContent = eventData.name;
             document.getElementById('modalEventDate').textContent = eventData.date;
 
-            // Format event type nicely
             const typeMap = {
                 'whole_day': 'Whole Day Event',
                 'half_day_am': 'Half Day (Morning)',
                 'half_day_pm': 'Half Day (Afternoon)'
             };
             document.getElementById('modalEventType').textContent = typeMap[eventData.type] || eventData.type
-                .replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                .replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase());
 
             document.getElementById('modalEventLocation').textContent = eventData.location;
             document.getElementById('modalEventAttendance').textContent = eventData.attendance + ' students';
@@ -1010,11 +1056,10 @@ $upcoming = $conn->query("
             document.getElementById('modalEventCreated').textContent = eventData.created_at;
             document.getElementById('modalEventDescription').textContent = eventData.description;
 
-            // Update edit link
             document.getElementById('modalEditLink').href = 'edit_event.php?id=' + eventData.id;
         });
 
-        // Fine Chart
+        // Fine Chart - Compact sizing
         new Chart(document.getElementById('fineChart'), {
             type: 'doughnut',
             data: {
@@ -1029,15 +1074,21 @@ $upcoming = $conn->query("
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                cutout: '70%',
+                cutout: '65%',
                 plugins: {
                     legend: {
                         display: false
                     },
                     tooltip: {
                         backgroundColor: '#1a202c',
-                        padding: 12,
-                        cornerRadius: 8,
+                        padding: 10,
+                        cornerRadius: 6,
+                        titleFont: {
+                            size: 12
+                        },
+                        bodyFont: {
+                            size: 12
+                        },
                         callbacks: {
                             label: function(context) {
                                 return ' Rs ' + context.parsed.toLocaleString();
@@ -1050,4 +1101,4 @@ $upcoming = $conn->query("
         </script>
 </body>
 
-</html>
+</html>'''
