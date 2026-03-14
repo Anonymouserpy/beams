@@ -4,7 +4,6 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 session_start();
-require "../sidebar/officer_sidebar.php";
 require "../../Connection/connection.php";
 
 // Auth check
@@ -86,7 +85,7 @@ if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
 }
 
 // NOW START OUTPUT
-require "../sidebar/officer_sidebar.php";
+include "../sidebar/officer_sidebar.php";
 ?>
 
 <!DOCTYPE html>
@@ -702,6 +701,11 @@ require "../sidebar/officer_sidebar.php";
         color: white;
     }
 
+    .normal-link {
+        color: #ffffff;
+        text-decoration: none;
+    }
+
     /* Responsive */
     @media (max-width: 1200px) {
         .stats-row {
@@ -835,9 +839,9 @@ require "../sidebar/officer_sidebar.php";
                     <i class="fas fa-list-ul text-primary"></i>
                     All Events
                 </h3>
-                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#eventModal"
-                    onclick="resetForm()">
-                    <i class="fas fa-plus me-2"></i>Create New Event
+                <button class="btn btn-primary" onclick="resetForm()">
+                    <a href="create_event.php" class="normal-link"><i class=" fas fa-plus me-2"></i>Create New
+                        Event</a>
                 </button>
             </div>
 
@@ -935,9 +939,9 @@ require "../sidebar/officer_sidebar.php";
                     <h3 class="empty-title">No Events Yet</h3>
                     <p class="empty-text">Start by creating your first event to manage attendance and track
                         participation.</p>
-                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#eventModal"
-                        onclick="resetForm()">
-                        <i class="fas fa-plus me-2"></i>Create Your First Event
+                    <button class="btn btn-primary" onclick="resetForm()">
+                        <a href="create_event.php" class="normal-link"><i class="fas fa-plus me-2"></i>Create Your First
+                            Event</a>
                     </button>
                 </div>
                 <?php endif; ?>
@@ -949,90 +953,6 @@ require "../sidebar/officer_sidebar.php";
     <button class="fab d-lg-none" data-bs-toggle="modal" data-bs-target="#eventModal" onclick="resetForm()">
         <i class="fas fa-plus"></i>
     </button>
-
-    <!-- Event Modal -->
-    <div class="modal fade" id="eventModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="modalTitle">
-                        <i class="fas fa-calendar-plus me-2"></i>Create New Event
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <form method="POST" action="" id="eventForm">
-                    <div class="modal-body">
-                        <input type="hidden" name="event_id" id="event_id" value="0">
-
-                        <div class="mb-3">
-                            <label class="form-label">Event Name</label>
-                            <input type="text" class="form-control" name="event_name" id="event_name" required
-                                placeholder="Enter event name">
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Event Date</label>
-                            <input type="date" class="form-control" name="event_date" id="event_date" required>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Event Type</label>
-                            <div class="event-type-selector">
-                                <label class="event-type-option">
-                                    <input type="radio" name="event_type" value="whole_day" checked>
-                                    <div class="event-type-card">
-                                        <div class="event-type-icon">
-                                            <i class="fas fa-sun"></i>
-                                        </div>
-                                        <div class="event-type-label">Whole Day</div>
-                                        <div class="event-type-desc">Full day event</div>
-                                    </div>
-                                </label>
-                                <label class="event-type-option">
-                                    <input type="radio" name="event_type" value="half_day_am">
-                                    <div class="event-type-card">
-                                        <div class="event-type-icon">
-                                            <i class="fas fa-cloud-sun"></i>
-                                        </div>
-                                        <div class="event-type-label">Half Day - AM</div>
-                                        <div class="event-type-desc">Morning session</div>
-                                    </div>
-                                </label>
-                                <label class="event-type-option">
-                                    <input type="radio" name="event_type" value="half_day_pm">
-                                    <div class="event-type-card">
-                                        <div class="event-type-icon">
-                                            <i class="fas fa-moon"></i>
-                                        </div>
-                                        <div class="event-type-label">Half Day - PM</div>
-                                        <div class="event-type-desc">Afternoon session</div>
-                                    </div>
-                                </label>
-                            </div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Location</label>
-                            <input type="text" class="form-control" name="location" id="location"
-                                placeholder="Enter event location">
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Description</label>
-                            <textarea class="form-control" name="description" id="description" rows="3"
-                                placeholder="Enter event description"></textarea>
-                        </div>
-                    </div>
-                    <div class="modal-footer border-0 pt-0">
-                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save me-2"></i>Save Event
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>

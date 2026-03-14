@@ -4,7 +4,7 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 session_start();
-require "../sidebar/officer_sidebar.php";
+// REMOVED the early sidebar require from here
 require "../../Connection/connection.php";
 
 // Auth check
@@ -12,6 +12,25 @@ if (!isset($_SESSION['officer_id'])) {
     header("Location: ../../Login.php");
     exit();
 }
+
+// Function to run fines if needed
+function runFinesIfNeeded() {
+    global $conn;
+    $lastRunFile = __DIR__ . '/last_fine_run.txt';
+    $currentTime = time();
+
+    // Always run the procedure
+    $query = "CALL generate_event_fines()";
+    if (mysqli_query($conn, $query)) {
+        error_log("Fines generated successfully at " . date('Y-m-d H:i:s'));
+    } else {
+        error_log("Error generating fines: " . mysqli_error($conn));
+    }
+
+    // Update the last run time (optional, for tracking)
+    file_put_contents($lastRunFile, date('Y-m-d H:i:s', $currentTime));
+}
+runFinesIfNeeded();
 
 // Handle AJAX Delete Action
 if (isset($_GET['ajax_delete']) && !empty($_GET['ajax_delete'])) {
@@ -42,6 +61,46 @@ if (isset($_GET['ajax_delete']) && !empty($_GET['ajax_delete'])) {
     } else {
         echo json_encode(['success' => false, 'message' => 'Error deleting student: ' . $conn->error]);
     }
+    exit();
+}
+// Handle AJAX Refresh (every 5 seconds polling)
+if (isset($_GET['ajax_refresh']) && $_GET['ajax_refresh'] == '1') {
+    header('Content-Type: application/json');
+
+    // Fetch all students with aggregated data
+    $students_result = $conn->query("
+        SELECT s.*, 
+               COUNT(DISTINCT a.attendance_id) as attendance_count,
+               COUNT(DISTINCT f.fine_id) as total_fines,
+               SUM(CASE WHEN f.status = 'unpaid' THEN f.amount ELSE 0 END) as unpaid_amount
+        FROM students s
+        LEFT JOIN attendance a ON s.student_id = a.student_id
+        LEFT JOIN student_fines f ON s.student_id = f.student_id
+        GROUP BY s.student_id
+        ORDER BY s.year_level ASC, s.section ASC, s.full_name ASC
+    ");
+
+    $students = [];
+    while ($row = $students_result->fetch_assoc()) {
+        $students[] = $row;
+    }
+
+    // Get statistics
+    $total_students = $conn->query("SELECT COUNT(*) as count FROM students")->fetch_assoc()['count'];
+    $total_sections = $conn->query("SELECT COUNT(DISTINCT section) as count FROM students")->fetch_assoc()['count'];
+    $total_unpaid = $conn->query("SELECT SUM(amount) as total FROM student_fines WHERE status = 'unpaid'")->fetch_assoc()['total'] ?: 0;
+    $total_attendance = $conn->query("SELECT COUNT(*) as count FROM attendance")->fetch_assoc()['count'];
+
+    echo json_encode([
+        'success' => true,
+        'students' => $students,
+        'stats' => [
+            'total_students' => $total_students,
+            'total_sections' => $total_sections,
+            'total_unpaid' => $total_unpaid,
+            'total_attendance' => $total_attendance
+        ]
+    ]);
     exit();
 }
 
@@ -130,11 +189,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['ajax_action'])) {
     exit();
 }
 
-// Handle Get Single Student (for edit)
+// Handle Get Single Student (for edit) - MODIFIED to include aggregated data
 if (isset($_GET['get_student']) && !empty($_GET['get_student'])) {
     header('Content-Type: application/json');
     $student_id = $conn->real_escape_string($_GET['get_student']);
-    $result = $conn->query("SELECT * FROM students WHERE student_id = '$student_id'");
+    $result = $conn->query("
+        SELECT s.*, 
+               COUNT(DISTINCT a.attendance_id) as attendance_count,
+               COUNT(DISTINCT f.fine_id) as total_fines,
+               SUM(CASE WHEN f.status = 'unpaid' THEN f.amount ELSE 0 END) as unpaid_amount
+        FROM students s
+        LEFT JOIN attendance a ON s.student_id = a.student_id
+        LEFT JOIN student_fines f ON s.student_id = f.student_id
+        WHERE s.student_id = '$student_id'
+        GROUP BY s.student_id
+    ");
 
     if ($result->num_rows > 0) {
         echo json_encode(['success' => true, 'student' => $result->fetch_assoc()]);
@@ -146,15 +215,13 @@ if (isset($_GET['get_student']) && !empty($_GET['get_student'])) {
 
 // Function to broadcast WebSocket messages (using file-based approach for simplicity)
 function broadcastWebSocket($data) {
-    $socket_file = '/tmp/beams_websocket.sock';
-    if (file_exists($socket_file)) {
-        $socket = @fsockopen('unix://' . $socket_file, -1, $errno, $errstr, 1);
-        if ($socket) {
-            fwrite($socket, json_encode($data) . "\n");
-            fclose($socket);
-        }
+    // Connect to the internal TCP socket (port 8081)
+    $socket = @fsockopen('tcp://127.0.0.1', 8081, $errno, $errstr, 1);
+    if ($socket) {
+        fwrite($socket, json_encode($data) . "\n");
+        fclose($socket);
     }
-    // Also store in database for persistence
+    // Also store in database for persistence (optional)
     global $conn;
     $message = $conn->real_escape_string(json_encode($data));
     $conn->query("INSERT INTO websocket_messages (message, created_at) VALUES ('$message', NOW())");
@@ -677,6 +744,10 @@ require "../sidebar/officer_sidebar.php";
         border-radius: 16px 16px 0 0;
         padding: 1.5rem;
         border: none;
+    }
+
+    .modal-header.bg-info {
+        background: var(--info) !important;
     }
 
     .modal-title {
@@ -1301,12 +1372,12 @@ require "../sidebar/officer_sidebar.php";
 
                 <!-- Filter Tabs -->
                 <div class="filter-tabs">
-                    <button class="filter-tab active" onclick="filterByYear('all')">All Students</button>
-                    <button class="filter-tab" onclick="filterByYear(1)">1st Year</button>
-                    <button class="filter-tab" onclick="filterByYear(2)">2nd Year</button>
-                    <button class="filter-tab" onclick="filterByYear(3)">3rd Year</button>
-                    <button class="filter-tab" onclick="filterByYear(4)">4th Year</button>
-                    <button class="filter-tab" onclick="filterByYear(5)">5th Year</button>
+                    <button class="filter-tab" onclick="filterByYear(event, 'all')">All Students</button>
+                    <button class="filter-tab" onclick="filterByYear(event, 1)">1st Year</button>
+                    <button class="filter-tab" onclick="filterByYear(event, 2)">2nd Year</button>
+                    <button class="filter-tab" onclick="filterByYear(event, 3)">3rd Year</button>
+                    <button class="filter-tab" onclick="filterByYear(event, 4)">4th Year</button>
+                    <button class="filter-tab" onclick="filterByYear(event, 5)">5th Year</button>
                 </div>
 
                 <div class="students-grid" id="studentsGrid">
@@ -1374,10 +1445,11 @@ require "../sidebar/officer_sidebar.php";
                             </div>
 
                             <div class="student-actions">
-                                <a href="student_details.php?id=<?php echo urlencode($student['student_id']); ?>"
-                                    class="btn-student btn-view">
+                                <!-- View button now triggers modal -->
+                                <button class="btn-student btn-view"
+                                    onclick="viewStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
                                     <i class="fas fa-eye"></i> View
-                                </a>
+                                </button>
                                 <button class="btn-student btn-edit"
                                     onclick="editStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
                                     <i class="fas fa-edit"></i> Edit
@@ -1413,7 +1485,7 @@ require "../sidebar/officer_sidebar.php";
         <i class="fas fa-plus"></i>
     </button>
 
-    <!-- Student Modal -->
+    <!-- Student Modal (Add/Edit) -->
     <div class="modal fade" id="studentModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -1508,6 +1580,59 @@ require "../sidebar/officer_sidebar.php";
         </div>
     </div>
 
+    <!-- View Student Modal (NEW) -->
+    <div class="modal fade" id="viewStudentModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-user-graduate me-2"></i>Student Details
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center mb-3">
+                        <div class="student-avatar mx-auto" style="width: 80px; height: 80px; font-size: 2rem;"
+                            id="viewAvatar">JD</div>
+                        <h4 id="viewFullName" class="mt-2"></h4>
+                        <span class="student-id" id="viewStudentId"></span>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold">Year Level</label>
+                            <p class="form-control-plaintext" id="viewYearLevel"></p>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold">Section</label>
+                            <p class="form-control-plaintext" id="viewSection"></p>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label fw-bold">Attendance Records</label>
+                            <p class="form-control-plaintext" id="viewAttendanceCount">0</p>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label fw-bold">Total Fines</label>
+                            <p class="form-control-plaintext" id="viewTotalFines">0</p>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label fw-bold">Unpaid Amount</label>
+                            <p class="form-control-plaintext" id="viewUnpaidAmount">₱0.00</p>
+                        </div>
+                    </div>
+                    <hr>
+                    <p class="text-muted small">Created at: <span id="viewCreatedAt"></span></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="editStudentFromView()"
+                        id="viewEditBtn">Edit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     // WebSocket Configuration
@@ -1524,23 +1649,29 @@ require "../sidebar/officer_sidebar.php";
     let reconnectAttempts = 0;
     let reconnectTimer = null;
 
+    // Filter state
+    let currentFilterYear = 'all';
+
     // Initialize WebSocket connection
     function initWebSocket() {
-        const wsUrl = `${WS_CONFIG.protocol}//${WS_CONFIG.host}:${WS_CONFIG.port}`;
+        // Prevent duplicate connections
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+            console.log('WebSocket already connecting or open');
+            return;
+        }
 
+        const wsUrl = `${WS_CONFIG.protocol}//${WS_CONFIG.host}:${WS_CONFIG.port}`;
         updateWSStatus('connecting', 'Connecting...');
 
         try {
-            ws = new WebSocket(wsUrl);
+            ws = new WebSocket(wsUrl); // assign to global ws
 
             ws.onopen = function(event) {
                 console.log('WebSocket Connected');
                 updateWSStatus('connected', 'Live');
                 reconnectAttempts = 0;
                 showToast('Connected', 'Real-time updates enabled', 'success');
-
-                // Subscribe to student updates channel
-                ws.send(JSON.stringify({
+                this.send(JSON.stringify({
                     type: 'subscribe',
                     channel: 'student_updates'
                 }));
@@ -1554,7 +1685,7 @@ require "../sidebar/officer_sidebar.php";
             ws.onclose = function(event) {
                 console.log('WebSocket Disconnected');
                 updateWSStatus('disconnected', 'Offline');
-
+                // Reconnect logic
                 if (reconnectAttempts < WS_CONFIG.maxReconnectAttempts) {
                     reconnectAttempts++;
                     updateWSStatus('connecting', `Reconnecting (${reconnectAttempts})...`);
@@ -1568,7 +1699,6 @@ require "../sidebar/officer_sidebar.php";
                 console.error('WebSocket Error:', error);
                 updateWSStatus('disconnected', 'Error');
             };
-
         } catch (error) {
             console.error('WebSocket Init Error:', error);
             updateWSStatus('disconnected', 'Failed');
@@ -1659,9 +1789,9 @@ require "../sidebar/officer_sidebar.php";
                         <div class="progress-bar" style="width: 0%"></div>
                     </div>
                     <div class="student-actions">
-                        <a href="student_details.php?id=${encodeURIComponent(student.student_id)}" class="btn-student btn-view">
+                        <button class="btn-student btn-view" onclick="viewStudent('${escapeHtml(student.student_id)}')">
                             <i class="fas fa-eye"></i> View
-                        </a>
+                        </button>
                         <button class="btn-student btn-edit" onclick="editStudent('${escapeHtml(student.student_id)}')">
                             <i class="fas fa-edit"></i> Edit
                         </button>
@@ -1689,6 +1819,9 @@ require "../sidebar/officer_sidebar.php";
 
         // Update stats
         incrementStat('totalStudents');
+
+        // Reapply filter
+        applyFilter();
     }
 
     // Handle student updated via WebSocket
@@ -1717,7 +1850,177 @@ require "../sidebar/officer_sidebar.php";
         card.setAttribute('data-year', student.year_level);
 
         showToast('Student Updated', `${student.full_name}'s information was updated`, 'info');
+
+        // Reapply filter (in case year changed)
+        applyFilter();
     }
+
+    // Render student cards from JSON data
+    function renderStudents(students) {
+        const grid = document.getElementById('studentsGrid');
+        const emptyStateHtml = `
+        <div class="empty-state" id="emptyState">
+            <div class="empty-icon">
+                <i class="fas fa-user-plus"></i>
+            </div>
+            <h3 class="empty-title">No Students Yet</h3>
+            <p class="empty-text">Start by adding your first college student to the system.</p>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal" onclick="resetForm()">
+                <i class="fas fa-plus me-2"></i>Add First Student
+            </button>
+        </div>
+    `;
+
+        if (!students || students.length === 0) {
+            grid.innerHTML = emptyStateHtml;
+            // No cards to filter, but we still need to update active tab class
+            updateActiveTabClass();
+            return;
+        }
+
+        let html = '';
+        const yearSuffix = ['st', 'nd', 'rd', 'th', 'th'];
+
+        students.forEach(student => {
+            const yearDisplay = student.year_level + yearSuffix[student.year_level - 1] + ' Year';
+            const initials = student.full_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+            const attendanceRate = <?php echo $total_attendance; ?> > 0 ?
+                Math.round((student.attendance_count / <?php echo $total_attendance; ?>) * 100) :
+                0;
+
+            html += `
+            <div class="student-card" id="student-${escapeHtml(student.student_id)}"
+                data-year="${student.year_level}"
+                data-name="${student.full_name.toLowerCase()}"
+                data-id="${student.student_id.toLowerCase()}">
+                <div class="student-header">
+                    <div class="student-avatar">${initials}</div>
+                    <div class="student-info">
+                        <h4>${escapeHtml(student.full_name)}</h4>
+                        <span class="student-id">${escapeHtml(student.student_id)}</span>
+                    </div>
+                </div>
+                <div class="student-body">
+                    <div class="student-meta">
+                        <div class="meta-item">
+                            <div class="meta-value">${yearDisplay}</div>
+                            <div class="meta-label">Year Level</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-value">${escapeHtml(student.section)}</div>
+                            <div class="meta-label">Section</div>
+                        </div>
+                    </div>
+                    <div class="student-stats">
+                        <div class="stat-row">
+                            <span><i class="fas fa-clipboard-check me-2 text-primary"></i>Attendance Records</span>
+                            <span class="attendance-count">${student.attendance_count || 0}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span><i class="fas fa-file-invoice-dollar me-2 text-warning"></i>Total Fines</span>
+                            <span class="fines-count">${student.total_fines || 0}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span><i class="fas fa-exclamation-circle me-2 text-danger"></i>Unpaid Amount</span>
+                            <span class="unpaid-amount ${student.unpaid_amount > 0 ? 'fines-warning' : ''}">
+                                ₱${parseFloat(student.unpaid_amount || 0).toFixed(2)}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar" style="width: ${Math.min(attendanceRate, 100)}%"></div>
+                    </div>
+                    <div class="student-actions">
+                        <button class="btn-student btn-view" onclick="viewStudent('${escapeHtml(student.student_id)}')">
+                            <i class="fas fa-eye"></i> View
+                        </button>
+                        <button class="btn-student btn-edit" onclick="editStudent('${escapeHtml(student.student_id)}')">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        <button class="btn-student btn-delete" onclick="deleteStudent('${escapeHtml(student.student_id)}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        });
+
+        grid.innerHTML = html;
+        // Apply current filter after rendering
+        applyFilter();
+        // Update active tab class (in case tabs were recreated)
+        updateActiveTabClass();
+    }
+
+    // Update active tab class based on currentFilterYear
+    function updateActiveTabClass() {
+        const tabs = document.querySelectorAll('.filter-tab');
+        tabs.forEach(tab => {
+            const year = tab.getAttribute('onclick') ? tab.getAttribute('onclick').match(/'([^']+)'/) : null;
+            // The onclick attribute contains something like "filterByYear(event, 'all')"
+            // We can parse the year from it, but simpler: just rely on the stored currentFilterYear
+            // We'll add a data-year attribute to each tab for easy matching
+        });
+
+        // Add data-year attributes to tabs for easier matching (done in HTML but we can set here too)
+        const tabButtons = document.querySelectorAll('.filter-tab');
+        tabButtons.forEach(btn => {
+            const onclick = btn.getAttribute('onclick');
+            if (onclick) {
+                const match = onclick.match(/'([^']+)'/);
+                if (match) {
+                    btn.setAttribute('data-year', match[1]);
+                }
+            }
+        });
+
+        // Now set active based on currentFilterYear
+        tabButtons.forEach(btn => {
+            if (btn.getAttribute('data-year') == currentFilterYear) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+    }
+
+    // Apply current filter to student cards
+    function applyFilter() {
+        const cards = document.querySelectorAll('.student-card');
+        cards.forEach(card => {
+            if (currentFilterYear === 'all' || card.getAttribute('data-year') == currentFilterYear) {
+                card.style.display = 'block';
+            } else {
+                card.style.display = 'none';
+            }
+        });
+    }
+
+    // Fetch latest data and refresh UI
+    async function refreshData() {
+        try {
+            const response = await fetch('?ajax_refresh=1');
+            const data = await response.json();
+
+            if (data.success) {
+                renderStudents(data.students);
+                updateStats(data.stats); // reuse existing updateStats function
+            }
+        } catch (error) {
+            console.error('Auto-refresh failed:', error);
+        }
+    }
+
+    // Start auto-refresh every 5 seconds when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        initWebSocket(); // keep WebSocket
+        setInterval(refreshData, 5000); // add AJAX polling every 5 seconds
+
+        // Initialize filter state: set active tab for 'all'
+        currentFilterYear = 'all';
+        updateActiveTabClass();
+    });
 
     // Handle student deleted via WebSocket
     function handleStudentDeleted(studentId) {
@@ -1733,6 +2036,9 @@ require "../sidebar/officer_sidebar.php";
             const grid = document.getElementById('studentsGrid');
             if (grid.children.length === 0) {
                 location.reload();
+            } else {
+                // Reapply filter after removal
+                applyFilter();
             }
         }, 500);
 
@@ -1955,6 +2261,9 @@ require "../sidebar/officer_sidebar.php";
                         const grid = document.getElementById('studentsGrid');
                         if (grid.children.length === 0) {
                             location.reload();
+                        } else {
+                            // Reapply filter after removal
+                            applyFilter();
                         }
                     }, 500);
                 }
@@ -2020,22 +2329,79 @@ require "../sidebar/officer_sidebar.php";
     }
 
     // Filter students by year level
-    function filterByYear(year) {
-        // Update active tab
+    function filterByYear(event, year) {
+        currentFilterYear = year;
+        // Update active tab using the clicked button (event.currentTarget)
         document.querySelectorAll('.filter-tab').forEach(tab => {
             tab.classList.remove('active');
         });
-        event.target.classList.add('active');
+        event.currentTarget.classList.add('active');
 
         // Filter cards
-        const cards = document.querySelectorAll('.student-card');
-        cards.forEach(card => {
-            if (year === 'all' || card.getAttribute('data-year') == year) {
-                card.style.display = 'block';
+        applyFilter();
+    }
+
+    // View student details in modal
+    async function viewStudent(studentId) {
+        try {
+            const response = await fetch(`?get_student=${encodeURIComponent(studentId)}`);
+            const result = await response.json();
+
+            if (result.success) {
+                const student = result.student;
+
+                // Set avatar initials
+                const initials = student.full_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                document.getElementById('viewAvatar').textContent = initials;
+
+                // Populate fields
+                document.getElementById('viewFullName').textContent = student.full_name;
+                document.getElementById('viewStudentId').textContent = student.student_id;
+
+                const yearSuffix = ['st', 'nd', 'rd', 'th', 'th'];
+                const yearDisplay = student.year_level + yearSuffix[student.year_level - 1] + ' Year';
+                document.getElementById('viewYearLevel').textContent = yearDisplay;
+                document.getElementById('viewSection').textContent = student.section;
+                document.getElementById('viewAttendanceCount').textContent = student.attendance_count || 0;
+                document.getElementById('viewTotalFines').textContent = student.total_fines || 0;
+                document.getElementById('viewUnpaidAmount').textContent = '₱' + parseFloat(student.unpaid_amount ||
+                    0).toFixed(2);
+
+                // Format created_at if available
+                if (student.created_at) {
+                    const date = new Date(student.created_at);
+                    document.getElementById('viewCreatedAt').textContent = date.toLocaleString();
+                } else {
+                    document.getElementById('viewCreatedAt').textContent = 'N/A';
+                }
+
+                // Store student ID for edit button
+                document.getElementById('viewEditBtn').setAttribute('data-student-id', student.student_id);
+
+                // Show modal
+                const viewModal = new bootstrap.Modal(document.getElementById('viewStudentModal'));
+                viewModal.show();
             } else {
-                card.style.display = 'none';
+                showToast('Error', result.message || 'Student not found', 'error');
             }
-        });
+        } catch (error) {
+            showToast('Error', 'Failed to load student details', 'error');
+            console.error('Error:', error);
+        }
+    }
+
+    // Edit from view modal
+    function editStudentFromView() {
+        const studentId = document.getElementById('viewEditBtn').getAttribute('data-student-id');
+        if (studentId) {
+            // Hide view modal
+            const viewModalEl = document.getElementById('viewStudentModal');
+            const viewModal = bootstrap.Modal.getInstance(viewModalEl);
+            if (viewModal) viewModal.hide();
+
+            // Open edit modal
+            editStudent(studentId);
+        }
     }
 
     // Initialize WebSocket on page load

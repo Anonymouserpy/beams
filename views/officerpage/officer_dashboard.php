@@ -829,7 +829,7 @@ $upcoming = $conn->query("
                             <i class="bi bi-calendar-week text-primary"></i>
                             Upcoming Events
                         </h3>
-                        <a href="events_list.php" class="card-action">
+                        <a href="manage_event.php" class="card-action">
                             View All <i class="bi bi-arrow-right"></i>
                         </a>
                     </div>
@@ -1101,4 +1101,4 @@ $upcoming = $conn->query("
         </script>
 </body>
 
-</html>'''
+</html>

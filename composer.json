@@ -1,5 +1,7 @@
 {
     "require": {
-        "cboden/ratchet": "^0.4.4"
+        "cboden/ratchet": "^0.4.4",
+        "react/event-loop": "^1.6",
+        "react/socket": "^1.17"
     }
 }
