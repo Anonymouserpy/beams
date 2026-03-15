@@ -28,6 +28,15 @@ function jsonResponse($status, $message, $data = []) {
     exit();
 }
 
+// Helper function to log messages to websocket_messages table
+function logWebsocketMessage($conn, $action, $details) {
+    $stmt = $conn->prepare("INSERT INTO websocket_messages (message, created_at) VALUES (?, NOW())");
+    $message = json_encode(['action' => $action, 'details' => $details, 'officer_id' => $_SESSION['officer_id'] ?? null]);
+    $stmt->bind_param("s", $message);
+    $stmt->execute();
+    $stmt->close();
+}
+
 // --- AJAX Handlers ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Verify CSRF token
@@ -55,7 +64,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $conn->prepare("INSERT INTO student_fines (student_id, event_id, fine_reason, amount, status) VALUES (?, ?, ?, ?, ?)");
             $stmt->bind_param("sids", $student_id, $event_id, $reason, $amount, $status);
             if ($stmt->execute()) {
-                jsonResponse('success', 'Fine added successfully.');
+                $fine_id = $stmt->insert_id;
+                logWebsocketMessage($conn, 'add', ['fine_id' => $fine_id, 'student_id' => $student_id, 'amount' => $amount]);
+                jsonResponse('success', 'Fine added successfully.', ['fine_id' => $fine_id]);
             } else {
                 jsonResponse('error', 'Database error: ' . $conn->error);
             }
@@ -86,6 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bind_param("sidsi", $student_id, $event_id, $reason, $amount, $status, $fine_id);
             if ($stmt->execute()) {
                 if ($stmt->affected_rows > 0) {
+                    logWebsocketMessage($conn, 'edit', ['fine_id' => $fine_id, 'student_id' => $student_id, 'amount' => $amount, 'status' => $status]);
                     jsonResponse('success', 'Fine updated successfully.');
                 } else {
                     jsonResponse('error', 'No changes made or fine not found.');
@@ -110,6 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->bind_param("i", $fine_id);
         if ($stmt->execute()) {
             if ($stmt->affected_rows > 0) {
+                logWebsocketMessage($conn, 'delete', ['fine_id' => $fine_id]);
                 jsonResponse('success', 'Fine deleted successfully.');
             } else {
                 jsonResponse('error', 'Fine not found.');
@@ -133,6 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->bind_param("si", $new_status, $fine_id);
         if ($stmt->execute()) {
             if ($stmt->affected_rows > 0) {
+                logWebsocketMessage($conn, 'toggle_status', ['fine_id' => $fine_id, 'new_status' => $new_status]);
                 jsonResponse('success', "Fine marked as $new_status.");
             } else {
                 jsonResponse('error', 'Fine not found or status unchanged.');
@@ -154,6 +168,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->bind_param("s", $student_id);
         if ($stmt->execute()) {
             $affected = $stmt->affected_rows;
+            if ($affected > 0) {
+                logWebsocketMessage($conn, 'pay_all_unpaid', ['student_id' => $student_id, 'count' => $affected]);
+            }
             jsonResponse('success', "$affected unpaid fine(s) marked as paid.");
         } else {
             jsonResponse('error', 'Database error: ' . $conn->error);
@@ -172,10 +189,8 @@ $query = "
     SELECT 
         sf.fine_id,
         sf.student_id,
-        -- 👇 Replace 'full_name' with the actual column name for student name
         s.full_name AS student_name,
         sf.event_id,
-        -- 👇 Replace 'event_name' with the actual column name for event name
         e.event_name AS event_name,
         sf.fine_reason,
         sf.amount,
@@ -192,7 +207,30 @@ $query .= " ORDER BY sf.recorded_at DESC";
 $result = $conn->query($query);
 $fines = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 
-// Fetch students for dropdown
+// Fetch unpaid summary per student for pay-all button
+$unpaid_summary = [];
+$unpaid_res = $conn->query("SELECT student_id, COUNT(*) as unpaid_count, SUM(amount) as unpaid_total FROM student_fines WHERE status='unpaid' GROUP BY student_id");
+if ($unpaid_res) {
+    while ($row = $unpaid_res->fetch_assoc()) {
+        $unpaid_summary[$row['student_id']] = $row;
+    }
+}
+
+// Group fines by student for the table with rowspan
+$grouped_fines = [];
+foreach ($fines as $fine) {
+    $sid = $fine['student_id'];
+    if (!isset($grouped_fines[$sid])) {
+        $grouped_fines[$sid] = [
+            'student_id' => $sid,
+            'student_name' => $fine['student_name'] ?? $sid,
+            'fines' => []
+        ];
+    }
+    $grouped_fines[$sid]['fines'][] = $fine;
+}
+
+// Fetch students for dropdown (for add/edit modals)
 $students = [];
 $stu_res = $conn->query("SELECT student_id, full_name AS name FROM students ORDER BY full_name");
 if ($stu_res) {
@@ -206,7 +244,7 @@ if ($ev_res) {
     $events = $ev_res->fetch_all(MYSQLI_ASSOC);
 }
 
-// Calculate summary statistics
+// Calculate summary statistics (based on filtered fines)
 $total_fines = count($fines);
 $total_amount = array_sum(array_column($fines, 'amount'));
 $unpaid_count = count(array_filter($fines, fn($f) => $f['status'] === 'unpaid'));
@@ -223,75 +261,68 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <!-- DataTables & Buttons -->
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css">
+    <!-- Google Font (Inter) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet">
     <style>
     :root {
         --primary: #2563eb;
+        --primary-dark: #1d4ed8;
         --success: #16a34a;
+        --success-dark: #15803d;
         --danger: #dc2626;
         --warning: #ca8a04;
         --dark: #1e293b;
         --light: #f8fafc;
+        --gray-100: #f1f5f9;
+        --gray-200: #e2e8f0;
+        --gray-600: #475569;
     }
 
     body {
-        background-color: #f1f5f9;
+        background-color: var(--gray-100);
         font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        color: var(--dark);
     }
 
-    .main-content {
-        margin-left: 280px;
+
+    .main-contents {
+        margin-left: var(--sidebar-width, 250px);
         padding: 2rem;
-        transition: margin 0.3s;
+        transition: margin-left 0.3s ease;
     }
 
     @media (max-width: 768px) {
-        .main-content {
+        .main-contents {
             margin-left: 0;
             padding: 1rem;
         }
     }
 
-    .card {
-        border: none;
-        border-radius: 1.5rem;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
-    }
-
-    .card-header {
-        background: white;
-        border-bottom: 1px solid #e2e8f0;
-        padding: 1.5rem 1.5rem 0.5rem 1.5rem;
-        font-weight: 600;
-        font-size: 1.35rem;
-        color: var(--dark);
-        border-radius: 1.5rem 1.5rem 0 0 !important;
-    }
-
+    /* Stats cards */
     .stats-card {
         background: white;
-        border-radius: 1.25rem;
-        padding: 1.25rem;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        border-radius: 1.5rem;
+        padding: 1.5rem;
+        box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.05);
         transition: transform 0.2s;
+        border: 1px solid rgba(0, 0, 0, 0.02);
     }
 
     .stats-card:hover {
-        transform: translateY(-2px);
+        transform: translateY(-3px);
     }
 
     .stats-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 16px;
+        width: 54px;
+        height: 54px;
+        border-radius: 18px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.5rem;
+        font-size: 1.8rem;
     }
 
+    /* Badges */
     .badge-paid {
         background: #dcfce7;
         color: #166534;
@@ -299,6 +330,9 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
         border-radius: 100px;
         font-weight: 500;
         font-size: 0.85rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
     }
 
     .badge-unpaid {
@@ -308,23 +342,41 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
         border-radius: 100px;
         font-weight: 500;
         font-size: 0.85rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
     }
 
+    /* Buttons */
     .btn-icon {
-        padding: 0.4rem 0.8rem;
+        padding: 0.35rem 0.7rem;
         border-radius: 0.75rem;
         font-size: 0.85rem;
         transition: all 0.15s;
+        border: 1px solid transparent;
     }
 
     .btn-icon:hover {
-        transform: translateY(-1px);
+        transform: translateY(-2px);
+        filter: brightness(0.95);
     }
 
     .filter-btn {
         border-radius: 100px;
-        padding: 0.4rem 1.5rem;
+        padding: 0.5rem 1.8rem;
         font-weight: 500;
+        border: 1px solid var(--gray-200);
+        background: white;
+        color: var(--gray-600);
+        transition: all 0.15s;
+        text-decoration: none;
+        display: inline-block;
+    }
+
+    .filter-btn:hover {
+        background: var(--gray-100);
+        border-color: var(--gray-600);
+        color: var(--dark);
     }
 
     .filter-btn.active {
@@ -333,36 +385,120 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
         border-color: var(--primary);
     }
 
-    .modal-content {
-        border-radius: 1.5rem;
+    /* Pay-all button */
+    .pay-all-btn {
+        background: linear-gradient(145deg, #16a34a, #15803d);
         border: none;
+        color: white;
+        padding: 0.45rem 1.2rem;
+        border-radius: 2rem;
+        font-weight: 500;
+        font-size: 0.9rem;
+        box-shadow: 0 6px 12px -6px #15803d80;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+
+    .pay-all-btn:hover {
+        transform: scale(1.02);
+        box-shadow: 0 10px 18px -8px #15803d;
+        color: white;
+    }
+
+    /* Main table */
+    .fines-table {
+        background: white;
+        border-radius: 1.5rem;
+        overflow: hidden;
+        box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.08);
+        border: 1px solid var(--gray-200);
+    }
+
+    .fines-table table {
+        margin-bottom: 0;
+    }
+
+    .fines-table th {
+        background: #f9fafc;
+        font-weight: 600;
+        color: var(--gray-600);
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        padding: 1rem 1rem;
+        border-bottom: 1px solid var(--gray-200);
+    }
+
+    .fines-table td {
+        padding: 1rem 1rem;
+        vertical-align: middle;
+        border-bottom: 1px solid var(--gray-200);
+    }
+
+    .fines-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .student-group {
+        background: #ffffff;
+    }
+
+    .student-group td {
+        background: white;
+    }
+
+    .student-name {
+        font-weight: 600;
+        color: var(--dark);
+    }
+
+    /* Modals */
+    .modal-content {
+        border-radius: 2rem;
+        border: none;
+        box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.3);
     }
 
     .modal-header {
-        background: #f8fafc;
-        border-radius: 1.5rem 1.5rem 0 0;
-        padding: 1.5rem;
+        background: #fafcff;
+        border-radius: 2rem 2rem 0 0;
+        padding: 1.75rem 2rem;
+        border-bottom: 1px solid var(--gray-200);
+    }
+
+    .modal-body {
+        padding: 2rem;
+    }
+
+    .modal-footer {
+        padding: 1.5rem 2rem;
+        border-top: 1px solid var(--gray-200);
     }
 
     .form-control,
     .form-select {
-        border-radius: 0.75rem;
-        border: 1px solid #e2e8f0;
-        padding: 0.6rem 1rem;
+        border-radius: 1rem;
+        border: 1px solid var(--gray-200);
+        padding: 0.7rem 1.2rem;
+        font-size: 0.95rem;
     }
 
     .form-control:focus,
     .form-select:focus {
         border-color: var(--primary);
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
     }
 
+    /* Alerts */
     .alert {
-        border-radius: 1rem;
+        border-radius: 1.2rem;
         border: none;
-        padding: 1rem 1.5rem;
+        padding: 1.2rem 2rem;
+        font-weight: 500;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
     }
 
+    /* Loading spinner */
     .spinner-border {
         width: 1.2rem;
         height: 1.2rem;
@@ -376,20 +512,28 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
     .btn-loading .btn-text {
         display: none;
     }
+
+    /* Responsive table */
+    @media (max-width: 992px) {
+        .fines-table {
+            overflow-x: auto;
+        }
+    }
     </style>
 </head>
 
 <body>
     <?php include "../sidebar/officer_sidebar.php"; ?>
-    <div class="main-content">
+    <div class="main-contents">
         <div class="container-fluid px-0">
             <!-- Header -->
-            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4">
-                <h2 class="fw-semibold mb-3 mb-md-0">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-5">
+                <h2 class="fw-semibold mb-3 mb-md-0" style="color: var(--dark);">
                     <i class="bi bi-receipt me-2" style="color: var(--primary);"></i>
                     <?= $config['app_name'] ?>
                 </h2>
-                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addFineModal">
+                <button class="btn btn-primary px-4 py-2 rounded-pill shadow-sm" data-bs-toggle="modal"
+                    data-bs-target="#addFineModal">
                     <i class="bi bi-plus-circle me-2"></i>Add New Fine
                 </button>
             </div>
@@ -399,7 +543,7 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
             <div class="alert alert-danger" id="errorAlert" role="alert" style="display: none;"></div>
 
             <!-- Stats Cards -->
-            <div class="row g-4 mb-4">
+            <div class="row g-4 mb-5">
                 <div class="col-sm-6 col-lg-3">
                     <div class="stats-card d-flex align-items-center">
                         <div class="stats-icon bg-primary bg-opacity-10 text-primary me-3">
@@ -450,119 +594,119 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
 
             <!-- Filter Bar -->
             <div class="d-flex flex-wrap gap-2 mb-4">
-                <a href="?status="
-                    class="btn btn-outline-secondary filter-btn <?= $filter_status == '' ? 'active' : '' ?>">
+                <a href="?status=" class="filter-btn <?= $filter_status == '' ? 'active' : '' ?>">
                     <i class="bi bi-list-ul me-2"></i>All
                 </a>
-                <a href="?status=unpaid"
-                    class="btn btn-outline-warning filter-btn <?= $filter_status == 'unpaid' ? 'active' : '' ?>">
+                <a href="?status=unpaid" class="filter-btn <?= $filter_status == 'unpaid' ? 'active' : '' ?>">
                     <i class="bi bi-exclamation-triangle me-2"></i>Unpaid
                 </a>
-                <a href="?status=paid"
-                    class="btn btn-outline-success filter-btn <?= $filter_status == 'paid' ? 'active' : '' ?>">
+                <a href="?status=paid" class="filter-btn <?= $filter_status == 'paid' ? 'active' : '' ?>">
                     <i class="bi bi-check-circle me-2"></i>Paid
                 </a>
                 <?php if ($filter_status): ?>
-                <a href="?" class="btn btn-outline-secondary filter-btn">
+                <a href="?" class="filter-btn">
                     <i class="bi bi-x-circle me-2"></i>Clear Filters
                 </a>
                 <?php endif; ?>
             </div>
 
-            <!-- Main Card with Table -->
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span>Fines List</span>
-                    <small class="text-muted">Last updated: <?= date($config['datetime_format']) ?></small>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table id="finesTable" class="table table-hover align-middle" style="width:100%">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Student</th>
-                                    <th>Event</th>
-                                    <th>Reason</th>
-                                    <th>Amount</th>
-                                    <th>Recorded</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
-                                    <th>Bulk Pay</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($fines as $fine): ?>
-                                <tr id="fine-row-<?= $fine['fine_id'] ?>">
-                                    <td><?= $fine['fine_id'] ?></td>
-                                    <td><?= htmlspecialchars($fine['student_name'] ?? $fine['student_id']) ?></td>
-                                    <td><?= htmlspecialchars($fine['event_name'] ?? 'Unknown') ?></td>
-                                    <td><?= htmlspecialchars($fine['fine_reason']) ?></td>
-                                    <td><?= $config['currency'] ?><?= number_format($fine['amount'], 2) ?></td>
-                                    <td><?= date($config['date_format'], strtotime($fine['recorded_at'])) ?></td>
-                                    <td>
-                                        <?php if ($fine['status'] === 'paid'): ?>
-                                        <span class="badge-paid"><i class="bi bi-check-circle-fill me-1"></i>Paid</span>
-                                        <?php else: ?>
-                                        <span class="badge-unpaid"><i
-                                                class="bi bi-exclamation-circle-fill me-1"></i>Unpaid</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <!-- Edit -->
-                                        <button class="btn btn-sm btn-outline-primary btn-icon edit-btn"
-                                            data-id="<?= $fine['fine_id'] ?>"
-                                            data-student="<?= htmlspecialchars($fine['student_id']) ?>"
-                                            data-event="<?= $fine['event_id'] ?>"
-                                            data-reason="<?= htmlspecialchars($fine['fine_reason']) ?>"
-                                            data-amount="<?= $fine['amount'] ?>" data-status="<?= $fine['status'] ?>"
-                                            title="Edit Fine" aria-label="Edit fine <?= $fine['fine_id'] ?>">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
+            <!-- Main Table -->
+            <?php if (empty($grouped_fines)): ?>
+            <div class="alert alert-info py-4 text-center">No fines found.</div>
+            <?php else: ?>
+            <div class="fines-table">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Event</th>
+                            <th>Reason</th>
+                            <th>Amount</th>
+                            <th>Date</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                            <th>Pay All</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($grouped_fines as $student): 
+                            $fine_count = count($student['fines']);
+                            $first = true;
+                            $student_id_esc = htmlspecialchars($student['student_id']);
+                            $student_name_esc = htmlspecialchars($student['student_name']);
+                            $unpaid_info = $unpaid_summary[$student['student_id']] ?? null;
+                        ?>
+                        <?php foreach ($student['fines'] as $index => $fine): ?>
+                        <tr id="fine-row-<?= $fine['fine_id'] ?>" class="student-group">
+                            <?php if ($first): ?>
+                            <td rowspan="<?= $fine_count ?>" class="student-name align-middle">
+                                <?= $student_name_esc ?>
+                            </td>
+                            <?php $first = false; ?>
+                            <?php endif; ?>
+                            <td><?= htmlspecialchars($fine['event_name'] ?? 'Unknown') ?></td>
+                            <td><?= htmlspecialchars($fine['fine_reason']) ?></td>
+                            <td class="fw-semibold"><?= $config['currency'] ?><?= number_format($fine['amount'], 2) ?>
+                            </td>
+                            <td><?= date($config['date_format'], strtotime($fine['recorded_at'])) ?></td>
+                            <td>
+                                <?php if ($fine['status'] === 'paid'): ?>
+                                <span class="badge-paid"><i class="bi bi-check-circle-fill"></i> Paid</span>
+                                <?php else: ?>
+                                <span class="badge-unpaid"><i class="bi bi-exclamation-circle-fill"></i> Unpaid</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <!-- Edit -->
+                                <button class="btn btn-sm btn-outline-primary btn-icon edit-btn"
+                                    data-id="<?= $fine['fine_id'] ?>"
+                                    data-student="<?= htmlspecialchars($fine['student_id']) ?>"
+                                    data-event="<?= $fine['event_id'] ?>"
+                                    data-reason="<?= htmlspecialchars($fine['fine_reason']) ?>"
+                                    data-amount="<?= $fine['amount'] ?>" data-status="<?= $fine['status'] ?>"
+                                    title="Edit Fine">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
 
-                                        <!-- Pay/Unpay -->
-                                        <?php if ($fine['status'] === 'unpaid'): ?>
-                                        <button class="btn btn-sm btn-success btn-icon pay-btn"
-                                            data-id="<?= $fine['fine_id'] ?>" title="Mark as Paid"
-                                            aria-label="Pay fine <?= $fine['fine_id'] ?>">
-                                            <i class="bi bi-cash-stack"></i> Pay
-                                        </button>
-                                        <?php else: ?>
-                                        <button class="btn btn-sm btn-warning btn-icon unpay-btn"
-                                            data-id="<?= $fine['fine_id'] ?>" title="Mark as Unpaid"
-                                            aria-label="Unpay fine <?= $fine['fine_id'] ?>">
-                                            <i class="bi bi-arrow-return-left"></i> Unpay
-                                        </button>
-                                        <?php endif; ?>
+                                <!-- Pay/Unpay -->
+                                <?php if ($fine['status'] === 'unpaid'): ?>
+                                <button class="btn btn-sm btn-success btn-icon pay-btn"
+                                    data-id="<?= $fine['fine_id'] ?>" title="Mark as Paid">
+                                    <i class="bi bi-cash-stack"></i>
+                                </button>
+                                <?php else: ?>
+                                <button class="btn btn-sm btn-warning btn-icon unpay-btn"
+                                    data-id="<?= $fine['fine_id'] ?>" title="Mark as Unpaid">
+                                    <i class="bi bi-arrow-return-left"></i>
+                                </button>
+                                <?php endif; ?>
 
-                                        <!-- Delete -->
-                                        <button class="btn btn-sm btn-outline-danger btn-icon delete-btn"
-                                            data-id="<?= $fine['fine_id'] ?>" title="Delete Fine"
-                                            aria-label="Delete fine <?= $fine['fine_id'] ?>">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </td>
-                                    <td>
-                                        <?php
-                                        static $seen_students = [];
-                                        if (!in_array($fine['student_id'], $seen_students)):
-                                            $seen_students[] = $fine['student_id'];
-                                        ?>
-                                        <button class="btn btn-sm btn-outline-success pay-all-btn"
-                                            data-student="<?= htmlspecialchars($fine['student_id']) ?>"
-                                            title="Pay all unpaid fines for this student"
-                                            aria-label="Pay all unpaid fines for <?= htmlspecialchars($fine['student_name'] ?? $fine['student_id']) ?>">
-                                            <i class="bi bi-cash"></i> Pay All
-                                        </button>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                                <!-- Delete -->
+                                <button class="btn btn-sm btn-outline-danger btn-icon delete-btn"
+                                    data-id="<?= $fine['fine_id'] ?>" title="Delete Fine">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                            <?php if ($index === 0): ?>
+                            <td rowspan="<?= $fine_count ?>" class="align-middle">
+                                <?php if ($unpaid_info && $unpaid_info['unpaid_count'] > 0): ?>
+                                <button class="btn pay-all-btn" data-student="<?= $student_id_esc ?>"
+                                    title="Pay all unpaid fines for this student">
+                                    <i class="bi bi-cash me-1"></i> Pay All
+                                    <?= $config['currency'] ?><?= number_format($unpaid_info['unpaid_total'], 2) ?>
+                                </button>
+                                <?php else: ?>
+                                <span class="text-muted small">No unpaid</span>
+                                <?php endif; ?>
+                            </td>
+                            <?php endif; ?>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
             </div>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -620,8 +764,9 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="saveFineBtn">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4"
+                        data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-5" id="saveFineBtn">
                         <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
                         <span class="btn-text">Save Fine</span>
                     </button>
@@ -685,8 +830,9 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="updateFineBtn">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4"
+                        data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-5" id="updateFineBtn">
                         <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
                         <span class="btn-text">Update Fine</span>
                     </button>
@@ -698,49 +844,9 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
     <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.bootstrap5.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.print.min.js"></script>
 
     <script>
     $(document).ready(function() {
-        // Initialize DataTable with export buttons
-        var table = $('#finesTable').DataTable({
-            order: [
-                [5, 'desc']
-            ],
-            pageLength: 10,
-            language: {
-                search: "Search fines:"
-            },
-            dom: '<"row"<"col-md-6"B><"col-md-6"f>>rtip',
-            buttons: [{
-                    extend: 'copy',
-                    className: 'btn btn-outline-secondary btn-sm'
-                },
-                {
-                    extend: 'csv',
-                    className: 'btn btn-outline-secondary btn-sm'
-                },
-                {
-                    extend: 'excel',
-                    className: 'btn btn-outline-secondary btn-sm'
-                },
-                {
-                    extend: 'pdf',
-                    className: 'btn btn-outline-secondary btn-sm'
-                },
-                {
-                    extend: 'print',
-                    className: 'btn btn-outline-secondary btn-sm'
-                }
-            ]
-        });
-
         // Show alert function
         function showAlert(type, message) {
             let alertBox = type === 'success' ? $('#successAlert') : $('#errorAlert');
@@ -843,7 +949,6 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
                 return;
 
             const fineId = $(this).data('id');
-            const btn = $(this);
 
             $.ajax({
                 url: window.location.href,
@@ -938,6 +1043,40 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
             $('.alert').fadeOut();
         });
     });
+
+    // --- WebSocket Client (for real-time updates) ---
+    (function() {
+        const wsUrl = 'ws://localhost:8080'; // Change to your WebSocket server
+        let socket;
+
+        function connectWebSocket() {
+            try {
+                socket = new WebSocket(wsUrl);
+
+                socket.onopen = function() {
+                    console.log('WebSocket connected');
+                };
+
+                socket.onmessage = function(event) {
+                    console.log('WebSocket message:', event.data);
+                };
+
+                socket.onerror = function(error) {
+                    console.log('WebSocket error:', error);
+                };
+
+                socket.onclose = function() {
+                    console.log('WebSocket disconnected, reconnecting in 3s...');
+                    setTimeout(connectWebSocket, 3000);
+                };
+            } catch (e) {
+                console.log('WebSocket connection failed:', e);
+            }
+        }
+
+        // Uncomment if you have a WebSocket server running
+        // connectWebSocket();
+    })();
     </script>
 </body>
 

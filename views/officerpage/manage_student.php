@@ -286,6 +286,13 @@ require "../sidebar/officer_sidebar.php";
         --card-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
     }
 
+    .main-contents {
+        margin-left: var(--sidebar-width, 250px);
+        transition: margin-left 0.3s ease;
+        padding: 20px;
+    }
+
+
     /* Main content wrapper - adjust based on your sidebar's layout */
     .main-wrapper {
         margin-left: 280px;
@@ -1280,7 +1287,7 @@ require "../sidebar/officer_sidebar.php";
 
 <body>
     <!-- The sidebar is already included above via require and will appear here -->
-    <div class="main-content">
+    <div class="main-contents">
 
 
         <!-- WebSocket Connection Status -->

@@ -241,10 +241,9 @@ include "../sidebar/officer_sidebar.php";
         font-weight: 500;
     }
 
-    /* ⬇️ REMOVED THE CONFLICTING .main-content RULE – now using the sidebar's version ⬇️ */
+    /* Main content area */
     .main-contents {
         margin-left: var(--sidebar-width, 250px);
-        /* Matches the sidebar width */
         transition: margin-left 0.3s ease;
     }
 
@@ -434,188 +433,30 @@ include "../sidebar/officer_sidebar.php";
 
     .event-actions {
         display: flex;
-        gap: 0.5rem;
-    }
-
-    .btn-event {
-        flex: 1;
-        padding: 0.625rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: 0.875rem;
-        transition: all 0.2s;
-        border: none;
-        cursor: pointer;
-        text-decoration: none;
-        text-align: center;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.5rem;
-    }
-
-    .btn-view {
-        background: #eef2ff;
-        color: var(--primary);
-    }
-
-    .btn-view:hover {
-        background: var(--primary);
-        color: white;
-    }
-
-    .btn-edit {
-        background: #fef3c7;
-        color: #d97706;
-    }
-
-    .btn-edit:hover {
-        background: #f59e0b;
-        color: white;
-    }
-
-    .btn-delete {
-        background: #fee2e2;
-        color: #dc2626;
-    }
-
-    .btn-delete:hover {
-        background: #ef4444;
-        color: white;
-    }
-
-    /* Modal Styles */
-    .modal-content {
-        border-radius: 16px;
-        border: none;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-    }
-
-    .modal-header {
-        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-        color: white;
-        border-radius: 16px 16px 0 0;
-        padding: 1.5rem;
-        border: none;
-    }
-
-    .modal-title {
-        font-weight: 700;
-        font-size: 1.25rem;
-    }
-
-    .btn-close {
-        filter: brightness(0) invert(1);
-    }
-
-    .modal-body {
-        padding: 1.5rem;
-    }
-
-    .form-label {
-        font-weight: 600;
-        color: var(--dark);
-        font-size: 0.875rem;
-        margin-bottom: 0.5rem;
-    }
-
-    .form-control,
-    .form-select {
-        border-radius: 10px;
-        border: 1px solid #e2e8f0;
-        padding: 0.75rem 1rem;
-        font-size: 0.875rem;
-        transition: all 0.2s;
-    }
-
-    .form-control:focus,
-    .form-select:focus {
-        border-color: var(--primary);
-        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-    }
-
-    .btn-primary {
-        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-        border: none;
-        padding: 0.75rem 1.5rem;
-        border-radius: 10px;
-        font-weight: 600;
-    }
-
-    .btn-primary:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.4);
-    }
-
-    /* Event Type Selection Cards */
-    .event-type-selector {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
         gap: 1rem;
-        margin-bottom: 1rem;
-    }
-
-    .event-type-option {
-        position: relative;
-        cursor: pointer;
-    }
-
-    .event-type-option input[type="radio"] {
-        position: absolute;
-        opacity: 0;
-    }
-
-    .event-type-card {
-        border: 2px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 1.25rem;
-        text-align: center;
-        transition: all 0.3s ease;
-        background: white;
-    }
-
-    .event-type-option input[type="radio"]:checked+.event-type-card {
-        border-color: var(--primary);
-        background: #eef2ff;
-        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
-    }
-
-    .event-type-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 12px;
-        display: flex;
         align-items: center;
-        justify-content: center;
-        margin: 0 auto 0.75rem;
-        font-size: 1.5rem;
     }
 
-    .event-type-option:nth-child(1) .event-type-icon {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .event-type-option:nth-child(2) .event-type-icon {
-        background: #fef3c7;
-        color: #92400e;
-    }
-
-    .event-type-option:nth-child(3) .event-type-icon {
-        background: #e0f2fe;
-        color: #0369a1;
-    }
-
-    .event-type-label {
-        font-weight: 600;
+    /* Normal text links for actions */
+    .event-actions a {
+        color: var(--primary);
+        text-decoration: none;
+        font-weight: 500;
         font-size: 0.875rem;
-        color: var(--dark);
-        margin-bottom: 0.25rem;
+        transition: color 0.2s;
     }
 
-    .event-type-desc {
-        font-size: 0.75rem;
-        color: #64748b;
+    .event-actions a:hover {
+        color: var(--primary-dark);
+        text-decoration: underline;
+    }
+
+    .event-actions a.delete-link {
+        color: var(--danger);
+    }
+
+    .event-actions a.delete-link:hover {
+        color: #b91c1c;
     }
 
     /* Empty State */
@@ -675,10 +516,23 @@ include "../sidebar/officer_sidebar.php";
         box-shadow: 0 20px 35px -5px rgba(99, 102, 241, 0.6);
     }
 
-    /* Normal Link inside button */
-    .normal-link {
+    /* Normal link for "Create New Event" */
+    .create-link {
         color: white;
+        background: var(--primary);
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
         text-decoration: none;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: background 0.2s;
+    }
+
+    .create-link:hover {
+        background: var(--primary-dark);
+        color: white;
     }
 
     /* Responsive */
@@ -817,10 +671,10 @@ include "../sidebar/officer_sidebar.php";
                     <i class="fas fa-list-ul text-primary"></i>
                     All Events
                 </h3>
-                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#eventModal"
-                    onclick="resetForm()">
+                <!-- Proper link styled as a button-like element, but semantically correct -->
+                <a href="create_event.php" class="create-link">
                     <i class="fas fa-plus me-2"></i>Create New Event
-                </button>
+                </a>
             </div>
 
             <div class="events-grid">
@@ -893,16 +747,16 @@ include "../sidebar/officer_sidebar.php";
                         </div>
 
                         <div class="event-actions">
-                            <a href="event_details.php?id=<?php echo $event['event_id']; ?>" class="btn-event btn-view">
+                            <a href="event_details.php?id=<?php echo $event['event_id']; ?>">
                                 <i class="fas fa-eye"></i> View
                             </a>
-                            <button class="btn-event btn-edit"
-                                onclick='editEvent(<?php echo json_encode($event, JSON_HEX_APOS); ?>)'>
+                            <a href="#"
+                                onclick='editEvent(<?php echo json_encode($event, JSON_HEX_APOS); ?>); return false;'>
                                 <i class="fas fa-edit"></i> Edit
-                            </button>
-                            <a href="?delete=<?php echo $event['event_id']; ?>" class="btn-event btn-delete"
+                            </a>
+                            <a href="?delete=<?php echo $event['event_id']; ?>" class="delete-link"
                                 onclick="return confirm('Are you sure you want to delete this event?')">
-                                <i class="fas fa-trash"></i>
+                                <i class="fas fa-trash"></i> Delete
                             </a>
                         </div>
                     </div>
@@ -916,10 +770,9 @@ include "../sidebar/officer_sidebar.php";
                     <h3 class="empty-title">No Events Yet</h3>
                     <p class="empty-text">Start by creating your first event to manage attendance and track
                         participation.</p>
-                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#eventModal"
-                        onclick="resetForm()">
+                    <a href="create_event.php" class="create-link">
                         <i class="fas fa-plus me-2"></i>Create Your First Event
-                    </button>
+                    </a>
                 </div>
                 <?php endif; ?>
             </div>

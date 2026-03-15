@@ -85,9 +85,9 @@ $upcoming = $conn->query("
         overflow-x: hidden;
     }
 
-    .main-content {
-        min-height: 100vh;
-        padding: 0;
+    .main-contents {
+        margin-left: var(--sidebar-width, 250px);
+        transition: margin-left 0.3s ease;
     }
 
     .dashboard-header {
@@ -739,7 +739,7 @@ $upcoming = $conn->query("
 </head>
 
 <body>
-    <div class="main-content">
+    <div class="main-contents">
 
         <!-- Dashboard Header with Date -->
         <div class="dashboard-header">
@@ -767,9 +767,9 @@ $upcoming = $conn->query("
                     <div class="action-icon"><i class="bi bi-people"></i></div>
                     <span class="action-label">Manage Students</span>
                 </a>
-                <a href="attendance_report.php" class="action-btn">
+                <a href="manage_event.php" class="action-btn">
                     <div class="action-icon"><i class="bi bi-clipboard-data"></i></div>
-                    <span class="action-label">View Reports</span>
+                    <span class="action-label">View Events</span>
                 </a>
                 <a href="fine_management.php" class="action-btn">
                     <div class="action-icon"><i class="bi bi-cash-stack"></i></div>

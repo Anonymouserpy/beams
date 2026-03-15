@@ -16,13 +16,13 @@ if (!isset($_SESSION['officer_id'])) {
 
 <style>
 :root {
-    --sidebar-width: 240px;
-    --primary-blue: #33A1E0;
-    --dark-bg: #1a1f2e;
-    --hover-bg: rgba(255, 255, 255, 0.08);
-    --active-bg: rgba(51, 161, 224, 0.2);
-    --text-muted: rgba(255, 255, 255, 0.6);
-    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --sidebar-width: 220px;
+    --beams-primary-blue: #33A1E0;
+    --beams-dark-bg: #1a1f2e;
+    --beams-hover-bg: rgba(255, 255, 255, 0.08);
+    --beams-active-bg: rgba(51, 161, 224, 0.2);
+    --beams-text-muted: rgba(255, 255, 255, 0.6);
+    --beams-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 * {
@@ -39,8 +39,8 @@ body {
 }
 
 /* Modern Sidebar */
-.sidebar {
-    background: linear-gradient(180deg, var(--dark-bg) 0%, #0f1419 100%);
+.beams-sidebar {
+    background: linear-gradient(180deg, var(--beams-dark-bg) 0%, #0f1419 100%);
     position: fixed;
     top: 0;
     left: 0;
@@ -55,13 +55,13 @@ body {
 }
 
 /* Logo Section */
-.sidebar-brand {
+.beams-sidebar-brand {
     padding: 1.5rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     margin-bottom: 0.5rem;
 }
 
-.brand-link {
+.beams-brand-link {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -69,10 +69,10 @@ body {
     color: white;
 }
 
-.brand-icon {
+.beams-brand-icon {
     width: 45px;
     height: 45px;
-    background: linear-gradient(135deg, var(--primary-blue), #2563eb);
+    background: linear-gradient(135deg, var(--beams-primary-blue), #2563eb);
     border-radius: 12px;
     display: flex;
     align-items: center;
@@ -81,61 +81,61 @@ body {
     box-shadow: 0 4px 15px rgba(51, 161, 224, 0.4);
 }
 
-.brand-text {
+.beams-brand-text {
     font-weight: 700;
     font-size: 1.25rem;
     letter-spacing: -0.5px;
 }
 
-.brand-subtext {
+.beams-brand-subtext {
     font-size: 0.75rem;
-    color: var(--text-muted);
+    color: var(--beams-text-muted);
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 1px;
 }
 
 /* Navigation */
-.nav-section {
+.beams-nav-section {
     padding: 0 1rem;
     flex: 1;
 }
 
-.nav-section-title {
+.beams-nav-section-title {
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 1.5px;
-    color: var(--text-muted);
+    color: var(--beams-text-muted);
     padding: 0 1rem;
     margin: 1.25rem 0 0.5rem;
     font-weight: 600;
 }
 
-.nav-list {
+.beams-nav-list {
     list-style: none;
     padding: 0;
     margin: 0;
 }
 
-.nav-item {
+.beams-nav-item {
     margin-bottom: 0.25rem;
 }
 
-.nav-link {
+.beams-nav-link {
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 0.75rem 1rem;
-    color: var(--text-muted) !important;
+    color: var(--beams-text-muted) !important;
     text-decoration: none;
     border-radius: 10px;
-    transition: var(--transition);
+    transition: var(--beams-transition);
     position: relative;
     font-weight: 500;
     font-size: 0.95rem;
 }
 
-.nav-link::before {
+.beams-nav-link::before {
     content: '';
     position: absolute;
     left: 0;
@@ -143,45 +143,45 @@ body {
     transform: translateY(-50%);
     width: 3px;
     height: 0;
-    background: var(--primary-blue);
+    background: var(--beams-primary-blue);
     border-radius: 0 3px 3px 0;
-    transition: var(--transition);
+    transition: var(--beams-transition);
 }
 
-.nav-link:hover {
-    background: var(--hover-bg);
+.beams-nav-link:hover {
+    background: var(--beams-hover-bg);
     color: white !important;
     transform: translateX(4px);
 }
 
-.nav-link:hover::before {
+.beams-nav-link:hover::before {
     height: 20px;
 }
 
-.nav-link.active {
-    background: var(--active-bg);
+.beams-nav-link.active {
+    background: var(--beams-active-bg);
     color: white !important;
 }
 
-.nav-link.active::before {
+.beams-nav-link.active::before {
     height: 60%;
 }
 
-.nav-link i {
+.beams-nav-link i {
     width: 24px;
     text-align: center;
     font-size: 1.1rem;
-    transition: var(--transition);
+    transition: var(--beams-transition);
 }
 
-.nav-link:hover i,
-.nav-link.active i {
-    color: var(--primary-blue);
+.beams-nav-link:hover i,
+.beams-nav-link.active i {
+    color: var(--beams-primary-blue);
     transform: scale(1.1);
 }
 
 /* Badge */
-.nav-badge {
+.beams-nav-badge {
     margin-left: auto;
     background: rgba(239, 68, 68, 0.9);
     color: white;
@@ -192,13 +192,13 @@ body {
 }
 
 /* Logout Section */
-.sidebar-footer {
+.beams-sidebar-footer {
     padding: 1rem;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
     margin-top: auto;
 }
 
-.logout-btn {
+.beams-logout-btn {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -206,28 +206,28 @@ body {
     color: #fca5a5 !important;
     text-decoration: none;
     border-radius: 10px;
-    transition: var(--transition);
+    transition: var(--beams-transition);
     font-weight: 500;
     border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
-.logout-btn:hover {
+.beams-logout-btn:hover {
     background: rgba(239, 68, 68, 0.15);
     color: #fecaca !important;
     border-color: rgba(239, 68, 68, 0.5);
     transform: translateX(4px);
 }
 
-.logout-btn i {
-    transition: var(--transition);
+.beams-logout-btn i {
+    transition: var(--beams-transition);
 }
 
-.logout-btn:hover i {
+.beams-logout-btn:hover i {
     transform: translateX(4px);
 }
 
 /* User Mini Profile */
-.user-mini {
+.beams-user-mini {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -238,10 +238,10 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.user-avatar {
+.beams-user-avatar {
     width: 40px;
     height: 40px;
-    background: linear-gradient(135deg, var(--primary-blue), #2563eb);
+    background: linear-gradient(135deg, var(--beams-primary-blue), #2563eb);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -252,12 +252,12 @@ body {
     flex-shrink: 0;
 }
 
-.user-info {
+.beams-user-info {
     flex: 1;
     min-width: 0;
 }
 
-.user-name {
+.beams-user-name {
     color: white;
     font-weight: 600;
     font-size: 0.9rem;
@@ -267,40 +267,40 @@ body {
     text-overflow: ellipsis;
 }
 
-.user-role {
-    color: var(--text-muted);
+.beams-user-role {
+    color: var(--beams-text-muted);
     font-size: 0.75rem;
     margin: 0;
 }
 
 /* Main Content Adjustment */
-.main-content {
-    margin-left: var(--sidebar-width);
+.beams-main-content {
+    margin-left: var(--beams-sidebar-width);
     padding: 2rem;
     min-height: 100vh;
 }
 
 /* Mobile Responsive */
 @media (max-width: 991px) {
-    .sidebar {
+    .beams-sidebar {
         transform: translateX(-100%);
         transition: transform 0.3s ease;
     }
 
-    .sidebar.show {
+    .beams-sidebar.show {
         transform: translateX(0);
     }
 
-    .main-content {
+    .beams-main-content {
         margin-left: 0;
     }
 
-    .sidebar-toggle {
+    .beams-sidebar-toggle {
         position: fixed;
         top: 1rem;
         left: 1rem;
         z-index: 1001;
-        background: var(--dark-bg);
+        background: var(--beams-dark-bg);
         color: white;
         border: none;
         padding: 0.75rem;
@@ -310,102 +310,95 @@ body {
 }
 
 /* Scrollbar Styling */
-.sidebar::-webkit-scrollbar {
+.beams-sidebar::-webkit-scrollbar {
     width: 4px;
 }
 
-.sidebar::-webkit-scrollbar-track {
+.beams-sidebar::-webkit-scrollbar-track {
     background: transparent;
 }
 
-.sidebar::-webkit-scrollbar-thumb {
+.beams-sidebar::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);
     border-radius: 3px;
 }
 
-.sidebar::-webkit-scrollbar-thumb:hover {
+.beams-sidebar::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
 }
 </style>
 
 <!-- Sidebar -->
-<div class="sidebar" id="sidebar">
+<div class="beams-sidebar" id="beamsSidebar">
     <!-- Brand -->
-    <div class="sidebar-brand">
-        <a href="#" class="brand-link">
-            <div class="brand-icon">
+    <div class="beams-sidebar-brand">
+        <a href="#" class="beams-brand-link">
+            <div class="beams-brand-icon">
                 <i class="fas fa-shield-halved"></i>
             </div>
             <div>
-                <div class="brand-text">BEAMS</div>
-                <div class="brand-subtext">Officer Portal</div>
+                <div class="beams-brand-text">BEAMS</div>
+                <div class="beams-brand-subtext">Officer Portal</div>
             </div>
         </a>
     </div>
 
     <!-- User Mini Profile -->
-    <div class="user-mini">
-        <div class="user-avatar">
+    <div class="beams-user-mini">
+        <div class="beams-user-avatar">
             <?php echo isset($_SESSION['officer_name']) ? strtoupper(substr($_SESSION['officer_name'], 0, 2)) : 'OF'; ?>
         </div>
-        <div class="user-info">
-            <p class="user-name">
+        <div class="beams-user-info">
+            <p class="beams-user-name">
                 <?php echo isset($_SESSION['officer_name']) ? htmlspecialchars($_SESSION['officer_name']) : 'Officer'; ?>
             </p>
-            <p class="user-role">System Officer</p>
+            <p class="beams-user-role">System Officer</p>
         </div>
     </div>
 
     <!-- Navigation -->
-    <div class="nav-section">
-        <div class="nav-section-title">Main Menu</div>
-        <ul class="nav-list">
-            <li class="nav-item">
+    <div class="beams-nav-section">
+        <div class="beams-nav-section-title">Main Menu</div>
+        <ul class="beams-nav-list">
+            <li class="beams-nav-item">
                 <a href="../officerpage/officer_dashboard.php"
-                    class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'officer_dashboard.php' ? 'active' : ''; ?>">
+                    class="beams-nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'officer_dashboard.php' ? 'active' : ''; ?>">
                     <i class="fas fa-chart-pie"></i>
                     <span>Dashboard</span>
                 </a>
             </li>
-            <li class="nav-item">
+            <li class="beams-nav-item">
                 <a href="../officerpage/manage_student.php"
-                    class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'Students.php' ? 'active' : ''; ?>">
+                    class="beams-nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'manage_student.php' ? 'active' : ''; ?>">
                     <i class="fas fa-users"></i>
                     <span>Students</span>
                 </a>
             </li>
-            <li class="nav-item">
+            <li class="beams-nav-item">
                 <a href="../officerpage/manage_event.php"
-                    class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'manage_event.php' ? 'active' : ''; ?>">
-                    <i class="fas fa-users"></i>
+                    class="beams-nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'manage_event.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-calendar-alt"></i>
                     <span>Event</span>
                 </a>
             </li>
-            <li class="nav-item">
+            <li class="beams-nav-item">
                 <a href="../officerpage/create_event.php"
-                    class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'create_event.php' ? 'active' : ''; ?>">
+                    class="beams-nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'create_event.php' ? 'active' : ''; ?>">
                     <i class="fas fa-calendar-plus"></i>
                     <span>Create Events</span>
                 </a>
             </li>
-            <li class="nav-item">
-                <a href="/Beams/Views/Officer/AttendanceRecords.php"
-                    class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'AttendanceRecords.php' ? 'active' : ''; ?>">
-                    <i class="fas fa-clipboard-check"></i>
-                    <span>Attendance Records</span>
-                </a>
-            </li>
         </ul>
 
-        <ul class="nav-list">
-            <li class="nav-item">
-                <a href="../officerpage/officer_register.php" class="nav-link">
-                    <i class="fas fa-file-export"></i>
+        <ul class="beams-nav-list">
+            <li class="beams-nav-item">
+                <a href="../officerpage/officer_register.php" class="beams-nav-link">
+                    <i class="fas fa-user-plus"></i>
                     <span>Register Officer</span>
                 </a>
             </li>
-            <li class="nav-item">
-                <a href="../officerpage/manage_fines.php" class="nav-link">
+            <li class="beams-nav-item">
+                <a href="../officerpage/manage_fines.php" class="beams-nav-link">
                     <i class="fas fa-cash-stack"></i>
                     <span>Manage Fines</span>
                 </a>
@@ -414,8 +407,8 @@ body {
     </div>
 
     <!-- Footer / Logout -->
-    <div class="sidebar-footer">
-        <a href="../../Auth/logout.php" class="logout-btn">
+    <div class="beams-sidebar-footer">
+        <a href="../../Auth/logout.php" class="beams-logout-btn">
             <i class="fas fa-sign-out-alt"></i>
             <span>Logout</span>
         </a>
@@ -423,19 +416,19 @@ body {
 </div>
 
 <!-- Mobile Toggle Button (visible only on small screens) -->
-<button class="sidebar-toggle d-lg-none" onclick="toggleSidebar()">
+<button class="beams-sidebar-toggle d-lg-none" onclick="toggleBeamsSidebar()">
     <i class="fas fa-bars"></i>
 </button>
 
 <!-- Overlay for mobile -->
-<div class="sidebar-overlay d-lg-none" id="sidebarOverlay" onclick="toggleSidebar()"
+<div class="beams-sidebar-overlay d-lg-none" id="beamsSidebarOverlay" onclick="toggleBeamsSidebar()"
     style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease;">
 </div>
 
 <script>
-function toggleSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('sidebarOverlay');
+function toggleBeamsSidebar() {
+    const sidebar = document.getElementById('beamsSidebar');
+    const overlay = document.getElementById('beamsSidebarOverlay');
 
     sidebar.classList.toggle('show');
 
@@ -451,7 +444,7 @@ function toggleSidebar() {
 // Active state handling
 document.addEventListener('DOMContentLoaded', function() {
     const currentPage = '<?php echo basename($_SERVER['PHP_SELF']); ?>';
-    const navLinks = document.querySelectorAll('.nav-link');
+    const navLinks = document.querySelectorAll('.beams-nav-link');
 
     navLinks.forEach(link => {
         if (link.getAttribute('href').includes(currentPage)) {

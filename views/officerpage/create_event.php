@@ -112,6 +112,12 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
         box-sizing: border-box;
     }
 
+    .main-contents {
+        margin-left: var(--sidebar-width, 250px);
+        transition: margin-left 0.3s ease;
+    }
+
+
     body {
         font-family: 'Inter', sans-serif;
         background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
@@ -619,7 +625,7 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
 
 <body>
 
-    <div class="main-content">
+    <div class="main-contents">
 
 
         <div class="container mb-5">
