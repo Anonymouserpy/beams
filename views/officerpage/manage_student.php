@@ -4,8 +4,7 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 session_start();
-// Include the sidebar (this will output its HTML)
-include "../sidebar/officer_sidebar.php";
+// REMOVED the early sidebar require from here
 require "../../Connection/connection.php";
 
 // Auth check
@@ -255,7 +254,8 @@ $conn->query("CREATE TABLE IF NOT EXISTS websocket_messages (
     INDEX (created_at)
 )");
 
-// No need to remove sidebar; it's included above.
+// INCLUDE THE SIDEBAR (this will output the sidebar HTML)
+require "../sidebar/officer_sidebar.php";
 ?>
 
 <!DOCTYPE html>
@@ -284,81 +284,23 @@ $conn->query("CREATE TABLE IF NOT EXISTS websocket_messages (
         --light: #f8fafc;
         --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         --card-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        /* Should match your sidebar's width */
     }
 
-    /* Main content wrapper - offset by sidebar width */
+    /* Main content wrapper - adjust based on your sidebar's layout */
     .main-wrapper {
+        margin-left: 280px;
+        /* Adjust this value to match your sidebar width */
         padding: 20px;
         transition: margin-left 0.3s ease;
     }
 
-    /* When sidebar is collapsed on mobile */
     @media (max-width: 991px) {
         .main-wrapper {
             margin-left: 0;
         }
     }
 
-    /* WebSocket status - position it to avoid hiding behind sidebar */
-    .ws-status {
-        position: fixed;
-        bottom: 20px;
-        left: calc(var(--sidebar-width) + 20px);
-        /* Place it just after sidebar */
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        z-index: 1000;
-        transition: all 0.3s ease;
-        background: white;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    }
-
-    /* On mobile, move to left edge */
-    @media (max-width: 991px) {
-        .ws-status {
-            left: 20px;
-        }
-    }
-
-    .ws-status.connected {
-        color: var(--success);
-        border: 1px solid var(--success);
-    }
-
-    .ws-status.disconnected {
-        color: var(--danger);
-        border: 1px solid var(--danger);
-    }
-
-    .ws-status.connecting {
-        color: var(--warning);
-        border: 1px solid var(--warning);
-    }
-
-    .ws-status i {
-        font-size: 0.5rem;
-        animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-
-        0%,
-        100% {
-            opacity: 1;
-        }
-
-        50% {
-            opacity: 0.5;
-        }
-    }
-
-    /* Rest of your existing styles remain unchanged */
+    /* Page Header */
     .page-header {
         background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
         padding: 2rem;
@@ -1121,6 +1063,62 @@ $conn->query("CREATE TABLE IF NOT EXISTS websocket_messages (
         }
     }
 
+    /* WebSocket Connection Status */
+    .ws-status {
+        position: fixed;
+        bottom: 20px;
+        left: 300px;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        z-index: 1000;
+        transition: all 0.3s ease;
+        background: white;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    @media (max-width: 991px) {
+        .ws-status {
+            left: 20px;
+        }
+    }
+
+    .ws-status.connected {
+        color: var(--success);
+        border: 1px solid var(--success);
+    }
+
+    .ws-status.disconnected {
+        color: var(--danger);
+        border: 1px solid var(--danger);
+    }
+
+    .ws-status.connecting {
+        color: var(--warning);
+        border: 1px solid var(--warning);
+    }
+
+    .ws-status i {
+        font-size: 0.5rem;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.5;
+        }
+    }
+
     /* Real-time indicator */
     .live-indicator {
         display: inline-flex;
@@ -1156,61 +1154,7 @@ $conn->query("CREATE TABLE IF NOT EXISTS websocket_messages (
         border-radius: 50%;
     }
 
-    /* Password toggle */
-    .password-wrapper {
-        position: relative;
-    }
-
-    .password-toggle {
-        position: absolute;
-        right: 1rem;
-        top: 50%;
-        transform: translateY(-50%);
-        cursor: pointer;
-        color: #94a3b8;
-        transition: color 0.2s;
-    }
-
-    .password-toggle:hover {
-        color: var(--primary);
-    }
-
-    /* Sync notification */
-    .sync-notification {
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--dark);
-        color: white;
-        padding: 1rem 2rem;
-        border-radius: 50px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-        z-index: 10000;
-        display: none;
-        align-items: center;
-        gap: 0.75rem;
-        font-weight: 600;
-    }
-
-    .sync-notification.show {
-        display: flex;
-        animation: slideDown 0.3s ease;
-    }
-
-    @keyframes slideDown {
-        from {
-            transform: translate(-50%, -100%);
-            opacity: 0;
-        }
-
-        to {
-            transform: translate(-50%, 0);
-            opacity: 1;
-        }
-    }
-
-    /* Responsive adjustments for stats row */
+    /* Responsive */
     @media (max-width: 1200px) {
         .stats-row {
             grid-template-columns: repeat(2, 1fr);
@@ -1277,27 +1221,81 @@ $conn->query("CREATE TABLE IF NOT EXISTS websocket_messages (
     .delay-4 {
         animation-delay: 0.4s;
     }
+
+    /* Password toggle */
+    .password-wrapper {
+        position: relative;
+    }
+
+    .password-toggle {
+        position: absolute;
+        right: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        cursor: pointer;
+        color: #94a3b8;
+        transition: color 0.2s;
+    }
+
+    .password-toggle:hover {
+        color: var(--primary);
+    }
+
+    /* Sync notification */
+    .sync-notification {
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--dark);
+        color: white;
+        padding: 1rem 2rem;
+        border-radius: 50px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        z-index: 10000;
+        display: none;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 600;
+    }
+
+    .sync-notification.show {
+        display: flex;
+        animation: slideDown 0.3s ease;
+    }
+
+    @keyframes slideDown {
+        from {
+            transform: translate(-50%, -100%);
+            opacity: 0;
+        }
+
+        to {
+            transform: translate(-50%, 0);
+            opacity: 1;
+        }
+    }
     </style>
 </head>
 
 <body>
-    <!-- The sidebar is already included above via include and will appear here -->
-
-    <!-- WebSocket Connection Status -->
-    <div class="ws-status disconnected" id="wsStatus">
-        <i class="fas fa-circle"></i>
-        <span>Offline</span>
-    </div>
-
-    <!-- Sync Notification -->
-    <div class="sync-notification" id="syncNotification">
-        <i class="fas fa-sync-alt fa-spin"></i>
-        <span>Syncing real-time updates...</span>
-    </div>
-
-    <!-- Main Content Wrapper - offset by sidebar -->
+    <!-- The sidebar is already included above via require and will appear here -->
     <div class="main-content">
 
+
+        <!-- WebSocket Connection Status -->
+        <div class="ws-status disconnected" id="wsStatus">
+            <i class="fas fa-circle"></i>
+            <span>Offline</span>
+        </div>
+
+        <!-- Sync Notification -->
+        <div class="sync-notification" id="syncNotification">
+            <i class="fas fa-sync-alt fa-spin"></i>
+            <span>Syncing real-time updates...</span>
+        </div>
+
+        <!-- Main Content Wrapper - Adjust margin based on your sidebar -->
         <!-- Toast Container -->
         <div class="toast-container" id="toastContainer"></div>
 
@@ -1636,7 +1634,6 @@ $conn->query("CREATE TABLE IF NOT EXISTS websocket_messages (
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    // Your existing JavaScript remains exactly the same
     // WebSocket Configuration
     const WS_CONFIG = {
         host: '<?php echo $_SERVER['HTTP_HOST']; ?>',

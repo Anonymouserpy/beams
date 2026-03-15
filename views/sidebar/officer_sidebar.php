@@ -397,18 +397,17 @@ body {
             </li>
         </ul>
 
-        <div class="nav-section-title">Management</div>
         <ul class="nav-list">
             <li class="nav-item">
-                <a href="#" class="nav-link">
+                <a href="../officerpage/officer_register.php" class="nav-link">
                     <i class="fas fa-file-export"></i>
-                    <span>Reports</span>
+                    <span>Register Officer</span>
                 </a>
             </li>
             <li class="nav-item">
-                <a href="#" class="nav-link">
-                    <i class="fas fa-cog"></i>
-                    <span>Settings</span>
+                <a href="../officerpage/manage_fines.php" class="nav-link">
+                    <i class="fas fa-cash-stack"></i>
+                    <span>Manage Fines</span>
                 </a>
             </li>
         </ul>
