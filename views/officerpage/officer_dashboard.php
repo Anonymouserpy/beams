@@ -1,10 +1,10 @@
 <?php
 session_start();
-require "../sidebar/officer_sidebar.php";
+include "../sidebar/officer_sidebar.php";
 require "../../Connection/connection.php";
 
 if (!isset($_SESSION['officer_id'])) {
-    header("Location: ../../Login.php");
+    header("Location: ../../officer_Login.php");
     exit();
 }
 
@@ -75,7 +75,6 @@ $upcoming = $conn->query("
 
     html {
         font-size: 14px;
-        /* Base font size reduction for 100% zoom match */
     }
 
     body {
@@ -87,8 +86,6 @@ $upcoming = $conn->query("
     }
 
     .main-content {
-        margin-left: 240px;
-        /* Sidebar width adjustment */
         min-height: 100vh;
         padding: 0;
     }
@@ -664,10 +661,6 @@ $upcoming = $conn->query("
     }
 
     @media (max-width: 992px) {
-        .main-content {
-            margin-left: 0;
-        }
-
         .content-grid {
             grid-template-columns: 1fr;
         }
@@ -770,7 +763,7 @@ $upcoming = $conn->query("
                     <div class="action-icon"><i class="bi bi-calendar-plus"></i></div>
                     <span class="action-label">Create Event</span>
                 </a>
-                <a href="manage_students.php" class="action-btn">
+                <a href="manage_student.php" class="action-btn">
                     <div class="action-icon"><i class="bi bi-people"></i></div>
                     <span class="action-label">Manage Students</span>
                 </a>

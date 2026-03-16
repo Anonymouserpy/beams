@@ -4,12 +4,13 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 session_start();
-// REMOVED the early sidebar require from here
+// Include the sidebar (this will output its HTML)
+include "../sidebar/officer_sidebar.php";
 require "../../Connection/connection.php";
 
 // Auth check
 if (!isset($_SESSION['officer_id'])) {
-    header("Location: ../../Login.php");
+    header("Location: ../../officer_Login.php");
     exit();
 }
 
@@ -254,8 +255,7 @@ $conn->query("CREATE TABLE IF NOT EXISTS websocket_messages (
     INDEX (created_at)
 )");
 
-// INCLUDE THE SIDEBAR (this will output the sidebar HTML)
-require "../sidebar/officer_sidebar.php";
+// No need to remove sidebar; it's included above.
 ?>
 
 <!DOCTYPE html>
@@ -284,23 +284,81 @@ require "../sidebar/officer_sidebar.php";
         --light: #f8fafc;
         --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         --card-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        /* Should match your sidebar's width */
     }
 
-    /* Main content wrapper - adjust based on your sidebar's layout */
+    /* Main content wrapper - offset by sidebar width */
     .main-wrapper {
-        margin-left: 280px;
-        /* Adjust this value to match your sidebar width */
         padding: 20px;
         transition: margin-left 0.3s ease;
     }
 
+    /* When sidebar is collapsed on mobile */
     @media (max-width: 991px) {
         .main-wrapper {
             margin-left: 0;
         }
     }
 
-    /* Page Header */
+    /* WebSocket status - position it to avoid hiding behind sidebar */
+    .ws-status {
+        position: fixed;
+        bottom: 20px;
+        left: calc(var(--sidebar-width) + 20px);
+        /* Place it just after sidebar */
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        z-index: 1000;
+        transition: all 0.3s ease;
+        background: white;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    /* On mobile, move to left edge */
+    @media (max-width: 991px) {
+        .ws-status {
+            left: 20px;
+        }
+    }
+
+    .ws-status.connected {
+        color: var(--success);
+        border: 1px solid var(--success);
+    }
+
+    .ws-status.disconnected {
+        color: var(--danger);
+        border: 1px solid var(--danger);
+    }
+
+    .ws-status.connecting {
+        color: var(--warning);
+        border: 1px solid var(--warning);
+    }
+
+    .ws-status i {
+        font-size: 0.5rem;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.5;
+        }
+    }
+
+    /* Rest of your existing styles remain unchanged */
     .page-header {
         background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
         padding: 2rem;
@@ -1063,62 +1121,6 @@ require "../sidebar/officer_sidebar.php";
         }
     }
 
-    /* WebSocket Connection Status */
-    .ws-status {
-        position: fixed;
-        bottom: 20px;
-        left: 300px;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        z-index: 1000;
-        transition: all 0.3s ease;
-        background: white;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    }
-
-    @media (max-width: 991px) {
-        .ws-status {
-            left: 20px;
-        }
-    }
-
-    .ws-status.connected {
-        color: var(--success);
-        border: 1px solid var(--success);
-    }
-
-    .ws-status.disconnected {
-        color: var(--danger);
-        border: 1px solid var(--danger);
-    }
-
-    .ws-status.connecting {
-        color: var(--warning);
-        border: 1px solid var(--warning);
-    }
-
-    .ws-status i {
-        font-size: 0.5rem;
-        animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-
-        0%,
-        100% {
-            opacity: 1;
-        }
-
-        50% {
-            opacity: 0.5;
-        }
-    }
-
     /* Real-time indicator */
     .live-indicator {
         display: inline-flex;
@@ -1154,7 +1156,61 @@ require "../sidebar/officer_sidebar.php";
         border-radius: 50%;
     }
 
-    /* Responsive */
+    /* Password toggle */
+    .password-wrapper {
+        position: relative;
+    }
+
+    .password-toggle {
+        position: absolute;
+        right: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        cursor: pointer;
+        color: #94a3b8;
+        transition: color 0.2s;
+    }
+
+    .password-toggle:hover {
+        color: var(--primary);
+    }
+
+    /* Sync notification */
+    .sync-notification {
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--dark);
+        color: white;
+        padding: 1rem 2rem;
+        border-radius: 50px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        z-index: 10000;
+        display: none;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 600;
+    }
+
+    .sync-notification.show {
+        display: flex;
+        animation: slideDown 0.3s ease;
+    }
+
+    @keyframes slideDown {
+        from {
+            transform: translate(-50%, -100%);
+            opacity: 0;
+        }
+
+        to {
+            transform: translate(-50%, 0);
+            opacity: 1;
+        }
+    }
+
+    /* Responsive adjustments for stats row */
     @media (max-width: 1200px) {
         .stats-row {
             grid-template-columns: repeat(2, 1fr);
@@ -1221,65 +1277,11 @@ require "../sidebar/officer_sidebar.php";
     .delay-4 {
         animation-delay: 0.4s;
     }
-
-    /* Password toggle */
-    .password-wrapper {
-        position: relative;
-    }
-
-    .password-toggle {
-        position: absolute;
-        right: 1rem;
-        top: 50%;
-        transform: translateY(-50%);
-        cursor: pointer;
-        color: #94a3b8;
-        transition: color 0.2s;
-    }
-
-    .password-toggle:hover {
-        color: var(--primary);
-    }
-
-    /* Sync notification */
-    .sync-notification {
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--dark);
-        color: white;
-        padding: 1rem 2rem;
-        border-radius: 50px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-        z-index: 10000;
-        display: none;
-        align-items: center;
-        gap: 0.75rem;
-        font-weight: 600;
-    }
-
-    .sync-notification.show {
-        display: flex;
-        animation: slideDown 0.3s ease;
-    }
-
-    @keyframes slideDown {
-        from {
-            transform: translate(-50%, -100%);
-            opacity: 0;
-        }
-
-        to {
-            transform: translate(-50%, 0);
-            opacity: 1;
-        }
-    }
     </style>
 </head>
 
 <body>
-    <!-- The sidebar is already included above via require and will appear here -->
+    <!-- The sidebar is already included above via include and will appear here -->
 
     <!-- WebSocket Connection Status -->
     <div class="ws-status disconnected" id="wsStatus">
@@ -1293,8 +1295,9 @@ require "../sidebar/officer_sidebar.php";
         <span>Syncing real-time updates...</span>
     </div>
 
-    <!-- Main Content Wrapper - Adjust margin based on your sidebar -->
-    <div class="main-wrapper">
+    <!-- Main Content Wrapper - offset by sidebar -->
+    <div class="main-content">
+
         <!-- Toast Container -->
         <div class="toast-container" id="toastContainer"></div>
 
@@ -1350,39 +1353,37 @@ require "../sidebar/officer_sidebar.php";
         </div>
 
         <!-- Main Content -->
-        <div class="main-content">
-            <div class="content-card animate-in delay-2">
-                <div class="card-header">
-                    <h3 class="card-title">
-                        <i class="fas fa-list-ul text-primary"></i>
-                        All College Students
-                    </h3>
-                    <div class="d-flex gap-2 align-items-center flex-wrap">
-                        <div class="search-box">
-                            <i class="fas fa-search"></i>
-                            <input type="text" id="searchInput" placeholder="Search students..."
-                                onkeyup="filterStudents()">
-                        </div>
-                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal"
-                            onclick="resetForm()">
-                            <i class="fas fa-plus me-2"></i>Add Student
-                        </button>
+        <div class="content-card animate-in delay-2">
+            <div class="card-header">
+                <h3 class="card-title">
+                    <i class="fas fa-list-ul text-primary"></i>
+                    All College Students
+                </h3>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchInput" placeholder="Search students..." onkeyup="filterStudents()">
                     </div>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal"
+                        onclick="resetForm()">
+                        <i class="fas fa-plus me-2"></i>Add Student
+                    </button>
                 </div>
+            </div>
 
-                <!-- Filter Tabs -->
-                <div class="filter-tabs">
-                    <button class="filter-tab" onclick="filterByYear(event, 'all')">All Students</button>
-                    <button class="filter-tab" onclick="filterByYear(event, 1)">1st Year</button>
-                    <button class="filter-tab" onclick="filterByYear(event, 2)">2nd Year</button>
-                    <button class="filter-tab" onclick="filterByYear(event, 3)">3rd Year</button>
-                    <button class="filter-tab" onclick="filterByYear(event, 4)">4th Year</button>
-                    <button class="filter-tab" onclick="filterByYear(event, 5)">5th Year</button>
-                </div>
+            <!-- Filter Tabs -->
+            <div class="filter-tabs">
+                <button class="filter-tab" onclick="filterByYear(event, 'all')">All Students</button>
+                <button class="filter-tab" onclick="filterByYear(event, 1)">1st Year</button>
+                <button class="filter-tab" onclick="filterByYear(event, 2)">2nd Year</button>
+                <button class="filter-tab" onclick="filterByYear(event, 3)">3rd Year</button>
+                <button class="filter-tab" onclick="filterByYear(event, 4)">4th Year</button>
+                <button class="filter-tab" onclick="filterByYear(event, 5)">5th Year</button>
+            </div>
 
-                <div class="students-grid" id="studentsGrid">
-                    <?php if ($students->num_rows > 0): ?>
-                    <?php while($student = $students->fetch_assoc()): 
+            <div class="students-grid" id="studentsGrid">
+                <?php if ($students->num_rows > 0): ?>
+                <?php while($student = $students->fetch_assoc()): 
                             $initials = implode('', array_map(function($word) { 
                                 return strtoupper(substr($word, 0, 1)); 
                             }, explode(' ', $student['full_name'])));
@@ -1395,89 +1396,89 @@ require "../sidebar/officer_sidebar.php";
                             $year_suffix = ['st', 'nd', 'rd', 'th', 'th'];
                             $year_display = $student['year_level'] . $year_suffix[$student['year_level'] - 1] . ' Year';
                         ?>
-                    <div class="student-card" id="student-<?php echo htmlspecialchars($student['student_id']); ?>"
-                        data-year="<?php echo $student['year_level']; ?>"
-                        data-name="<?php echo strtolower($student['full_name']); ?>"
-                        data-id="<?php echo strtolower($student['student_id']); ?>">
-                        <div class="student-header">
-                            <div class="student-avatar">
-                                <?php echo $initials; ?>
-                            </div>
-                            <div class="student-info">
-                                <h4><?php echo htmlspecialchars($student['full_name']); ?></h4>
-                                <span class="student-id"><?php echo htmlspecialchars($student['student_id']); ?></span>
-                            </div>
+                <div class="student-card" id="student-<?php echo htmlspecialchars($student['student_id']); ?>"
+                    data-year="<?php echo $student['year_level']; ?>"
+                    data-name="<?php echo strtolower($student['full_name']); ?>"
+                    data-id="<?php echo strtolower($student['student_id']); ?>">
+                    <div class="student-header">
+                        <div class="student-avatar">
+                            <?php echo $initials; ?>
                         </div>
-                        <div class="student-body">
-                            <div class="student-meta">
-                                <div class="meta-item">
-                                    <div class="meta-value"><?php echo $year_display; ?></div>
-                                    <div class="meta-label">Year Level</div>
-                                </div>
-                                <div class="meta-item">
-                                    <div class="meta-value"><?php echo htmlspecialchars($student['section']); ?></div>
-                                    <div class="meta-label">Section</div>
-                                </div>
-                            </div>
-
-                            <div class="student-stats">
-                                <div class="stat-row">
-                                    <span><i class="fas fa-clipboard-check me-2 text-primary"></i>Attendance
-                                        Records</span>
-                                    <span class="attendance-count"><?php echo $student['attendance_count']; ?></span>
-                                </div>
-                                <div class="stat-row">
-                                    <span><i class="fas fa-file-invoice-dollar me-2 text-warning"></i>Total Fines</span>
-                                    <span class="fines-count"><?php echo $student['total_fines']; ?></span>
-                                </div>
-                                <div class="stat-row">
-                                    <span><i class="fas fa-exclamation-circle me-2 text-danger"></i>Unpaid Amount</span>
-                                    <span
-                                        class="unpaid-amount <?php echo $student['unpaid_amount'] > 0 ? 'fines-warning' : ''; ?>">
-                                        ₱<?php echo number_format($student['unpaid_amount'] ?: 0, 2); ?>
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div class="progress">
-                                <div class="progress-bar" style="width: <?php echo min($attendance_rate, 100); ?>%">
-                                </div>
-                            </div>
-
-                            <div class="student-actions">
-                                <!-- View button now triggers modal -->
-                                <button class="btn-student btn-view"
-                                    onclick="viewStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
-                                    <i class="fas fa-eye"></i> View
-                                </button>
-                                <button class="btn-student btn-edit"
-                                    onclick="editStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
-                                    <i class="fas fa-edit"></i> Edit
-                                </button>
-                                <button class="btn-student btn-delete"
-                                    onclick="deleteStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
+                        <div class="student-info">
+                            <h4><?php echo htmlspecialchars($student['full_name']); ?></h4>
+                            <span class="student-id"><?php echo htmlspecialchars($student['student_id']); ?></span>
                         </div>
                     </div>
-                    <?php endwhile; ?>
-                    <?php else: ?>
-                    <div class="empty-state" id="emptyState">
-                        <div class="empty-icon">
-                            <i class="fas fa-user-plus"></i>
+                    <div class="student-body">
+                        <div class="student-meta">
+                            <div class="meta-item">
+                                <div class="meta-value"><?php echo $year_display; ?></div>
+                                <div class="meta-label">Year Level</div>
+                            </div>
+                            <div class="meta-item">
+                                <div class="meta-value"><?php echo htmlspecialchars($student['section']); ?></div>
+                                <div class="meta-label">Section</div>
+                            </div>
                         </div>
-                        <h3 class="empty-title">No Students Yet</h3>
-                        <p class="empty-text">Start by adding your first college student to the system.</p>
-                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal"
-                            onclick="resetForm()">
-                            <i class="fas fa-plus me-2"></i>Add First Student
-                        </button>
+
+                        <div class="student-stats">
+                            <div class="stat-row">
+                                <span><i class="fas fa-clipboard-check me-2 text-primary"></i>Attendance
+                                    Records</span>
+                                <span class="attendance-count"><?php echo $student['attendance_count']; ?></span>
+                            </div>
+                            <div class="stat-row">
+                                <span><i class="fas fa-file-invoice-dollar me-2 text-warning"></i>Total Fines</span>
+                                <span class="fines-count"><?php echo $student['total_fines']; ?></span>
+                            </div>
+                            <div class="stat-row">
+                                <span><i class="fas fa-exclamation-circle me-2 text-danger"></i>Unpaid Amount</span>
+                                <span
+                                    class="unpaid-amount <?php echo $student['unpaid_amount'] > 0 ? 'fines-warning' : ''; ?>">
+                                    ₱<?php echo number_format($student['unpaid_amount'] ?: 0, 2); ?>
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="progress">
+                            <div class="progress-bar" style="width: <?php echo min($attendance_rate, 100); ?>%">
+                            </div>
+                        </div>
+
+                        <div class="student-actions">
+                            <!-- View button now triggers modal -->
+                            <button class="btn-student btn-view"
+                                onclick="viewStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
+                                <i class="fas fa-eye"></i> View
+                            </button>
+                            <button class="btn-student btn-edit"
+                                onclick="editStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button class="btn-student btn-delete"
+                                onclick="deleteStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
                     </div>
-                    <?php endif; ?>
                 </div>
+                <?php endwhile; ?>
+                <?php else: ?>
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-icon">
+                        <i class="fas fa-user-plus"></i>
+                    </div>
+                    <h3 class="empty-title">No Students Yet</h3>
+                    <p class="empty-text">Start by adding your first college student to the system.</p>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal"
+                        onclick="resetForm()">
+                        <i class="fas fa-plus me-2"></i>Add First Student
+                    </button>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
+    </div>
     </div>
 
     <!-- Floating Action Button (Mobile) -->
@@ -1635,6 +1636,7 @@ require "../sidebar/officer_sidebar.php";
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+    // Your existing JavaScript remains exactly the same
     // WebSocket Configuration
     const WS_CONFIG = {
         host: '<?php echo $_SERVER['HTTP_HOST']; ?>',

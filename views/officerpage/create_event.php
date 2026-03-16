@@ -4,7 +4,7 @@ require "../sidebar/officer_sidebar.php";
 require "../../Connection/connection.php";
 
 if (!isset($_SESSION['officer_id'])) {
-    header("Location: ../../Login.php");
+    header("Location: ../../officer_Login.php");
     exit();
 }
 

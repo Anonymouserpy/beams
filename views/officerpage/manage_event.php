@@ -8,7 +8,7 @@ require "../../Connection/connection.php";
 
 // Auth check
 if (!isset($_SESSION['officer_id'])) {
-    header("Location: ../../Login.php");
+    header("Location: ../../officer_Login.php");
     exit();
 }
 
@@ -77,13 +77,6 @@ $events = $conn->query("
     ORDER BY e.event_date DESC
 ");
 
-$edit_event = null;
-if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
-    $edit_id = intval($_GET['edit']);
-    $result = $conn->query("SELECT * FROM events WHERE event_id = $edit_id");
-    $edit_event = $result->fetch_assoc();
-}
-
 // NOW START OUTPUT
 include "../sidebar/officer_sidebar.php";
 ?>
@@ -111,7 +104,6 @@ include "../sidebar/officer_sidebar.php";
         --info: #0ea5e9;
         --dark: #1e293b;
         --light: #f8fafc;
-        --sidebar-width: 280px;
         --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         --card-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
     }
@@ -126,7 +118,6 @@ include "../sidebar/officer_sidebar.php";
         font-family: 'Inter', sans-serif;
         background: #f1f5f9;
         color: #334155;
-        margin-left: var(--sidebar-width);
         min-height: 100vh;
     }
 
@@ -250,9 +241,11 @@ include "../sidebar/officer_sidebar.php";
         font-weight: 500;
     }
 
-    /* Main Content */
-    .main-content {
-        padding: 0 2rem 2rem;
+    /* ⬇️ REMOVED THE CONFLICTING .main-content RULE – now using the sidebar's version ⬇️ */
+    .main-contents {
+        margin-left: var(--sidebar-width, 250px);
+        /* Matches the sidebar width */
+        transition: margin-left 0.3s ease;
     }
 
     .content-card {
@@ -261,6 +254,7 @@ include "../sidebar/officer_sidebar.php";
         box-shadow: var(--card-shadow);
         border: 1px solid #e2e8f0;
         overflow: hidden;
+        margin: 2rem;
     }
 
     .card-header {
@@ -681,28 +675,9 @@ include "../sidebar/officer_sidebar.php";
         box-shadow: 0 20px 35px -5px rgba(99, 102, 241, 0.6);
     }
 
-    /* Success Toast */
-    .toast-container {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 1055;
-    }
-
-    .toast {
-        border-radius: 12px;
-        border: none;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
-    }
-
-    .toast-header {
-        border-radius: 12px 12px 0 0;
-        background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
-        color: white;
-    }
-
+    /* Normal Link inside button */
     .normal-link {
-        color: #ffffff;
+        color: white;
         text-decoration: none;
     }
 
@@ -768,80 +743,83 @@ include "../sidebar/officer_sidebar.php";
 </head>
 
 <body>
+    <!-- The sidebar is already included above via include and will appear here -->
 
-    <!-- Page Header -->
-    <div class="page-header">
-        <div class="header-content">
-            <nav aria-label="breadcrumb">
-                <ol class="breadcrumb">
-                    <li class="breadcrumb-item"><a href="officer_dashboard.php"><i class="fas fa-home"></i>
-                            Dashboard</a></li>
-                    <li class="breadcrumb-item active" aria-current="page">Event Manager</li>
-                </ol>
-            </nav>
-            <h1 class="page-title"><i class="fas fa-calendar-alt me-3"></i>Event Manager</h1>
-            <p class="page-subtitle">Create, manage, and track all your events in one place</p>
-        </div>
-    </div>
+    <!-- Main Content Wrapper - uses the sidebar's .main-content rule with margin-left -->
+    <div class="main-contents">
 
-    <!-- Stats Row -->
-    <div class="stats-row">
-        <div class="stat-card primary animate-in">
-            <div class="stat-icon">
-                <i class="fas fa-calendar-check"></i>
+        <!-- Page Header -->
+        <div class="page-header">
+            <div class="header-content">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="officer_dashboard.php"><i class="fas fa-home"></i>
+                                Dashboard</a></li>
+                        <li class="breadcrumb-item active" aria-current="page">Event Manager</li>
+                    </ol>
+                </nav>
+                <h1 class="page-title"><i class="fas fa-calendar-alt me-3"></i>Event Manager</h1>
+                <p class="page-subtitle">Create, manage, and track all your events in one place</p>
             </div>
-            <div class="stat-value"><?php echo $events->num_rows; ?></div>
-            <div class="stat-label">Total Events</div>
         </div>
-        <div class="stat-card success animate-in delay-1">
-            <div class="stat-icon">
-                <i class="fas fa-calendar-day"></i>
-            </div>
-            <div class="stat-value">
-                <?php 
-                $upcoming = $conn->query("SELECT COUNT(*) as count FROM events WHERE event_date >= CURDATE()")->fetch_assoc()['count'];
-                echo $upcoming;
-                ?>
-            </div>
-            <div class="stat-label">Upcoming Events</div>
-        </div>
-        <div class="stat-card warning animate-in delay-2">
-            <div class="stat-icon">
-                <i class="fas fa-users"></i>
-            </div>
-            <div class="stat-value">
-                <?php
-                $total_attendance = $conn->query("SELECT COUNT(DISTINCT student_id) as count FROM attendance")->fetch_assoc()['count'];
-                echo $total_attendance;
-                ?>
-            </div>
-            <div class="stat-label">Total Attendance</div>
-        </div>
-        <div class="stat-card danger animate-in delay-3">
-            <div class="stat-icon">
-                <i class="fas fa-clock"></i>
-            </div>
-            <div class="stat-value">
-                <?php
-                $past = $conn->query("SELECT COUNT(*) as count FROM events WHERE event_date < CURDATE()")->fetch_assoc()['count'];
-                echo $past;
-                ?>
-            </div>
-            <div class="stat-label">Past Events</div>
-        </div>
-    </div>
 
-    <!-- Main Content -->
-    <div class="main-content">
+        <!-- Stats Row -->
+        <div class="stats-row">
+            <div class="stat-card primary animate-in">
+                <div class="stat-icon">
+                    <i class="fas fa-calendar-check"></i>
+                </div>
+                <div class="stat-value"><?php echo $events->num_rows; ?></div>
+                <div class="stat-label">Total Events</div>
+            </div>
+            <div class="stat-card success animate-in delay-1">
+                <div class="stat-icon">
+                    <i class="fas fa-calendar-day"></i>
+                </div>
+                <div class="stat-value">
+                    <?php 
+                    $upcoming = $conn->query("SELECT COUNT(*) as count FROM events WHERE event_date >= CURDATE()")->fetch_assoc()['count'];
+                    echo $upcoming;
+                    ?>
+                </div>
+                <div class="stat-label">Upcoming Events</div>
+            </div>
+            <div class="stat-card warning animate-in delay-2">
+                <div class="stat-icon">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="stat-value">
+                    <?php
+                    $total_attendance = $conn->query("SELECT COUNT(DISTINCT student_id) as count FROM attendance")->fetch_assoc()['count'];
+                    echo $total_attendance;
+                    ?>
+                </div>
+                <div class="stat-label">Total Attendance</div>
+            </div>
+            <div class="stat-card danger animate-in delay-3">
+                <div class="stat-icon">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="stat-value">
+                    <?php
+                    $past = $conn->query("SELECT COUNT(*) as count FROM events WHERE event_date < CURDATE()")->fetch_assoc()['count'];
+                    echo $past;
+                    ?>
+                </div>
+                <div class="stat-label">Past Events</div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
         <div class="content-card animate-in delay-2">
             <div class="card-header">
                 <h3 class="card-title">
                     <i class="fas fa-list-ul text-primary"></i>
                     All Events
                 </h3>
-                <button class="btn btn-primary" onclick="resetForm()">
-                    <a href="create_event.php" class="normal-link"><i class=" fas fa-plus me-2"></i>Create New
-                        Event</a>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#eventModal"
+                    onclick="resetForm()">
+                    <i class="fas fa-plus me-2"></i>Create New Event
                 </button>
             </div>
 
@@ -851,7 +829,6 @@ include "../sidebar/officer_sidebar.php";
                         $date = strtotime($event['event_date']);
                         $day = date('d', $date);
                         $month = date('M', $date);
-                        $is_past = $event['event_date'] < date('Y-m-d');
                         $attendance_rate = $event['total_students'] > 0 ? 
                             round(($event['attendance_count'] / $event['total_students']) * 100) : 0;
                         
@@ -920,7 +897,7 @@ include "../sidebar/officer_sidebar.php";
                                 <i class="fas fa-eye"></i> View
                             </a>
                             <button class="btn-event btn-edit"
-                                onclick="editEvent(<?php echo htmlspecialchars(json_encode($event)); ?>)">
+                                onclick='editEvent(<?php echo json_encode($event, JSON_HEX_APOS); ?>)'>
                                 <i class="fas fa-edit"></i> Edit
                             </button>
                             <a href="?delete=<?php echo $event['event_id']; ?>" class="btn-event btn-delete"
@@ -939,9 +916,9 @@ include "../sidebar/officer_sidebar.php";
                     <h3 class="empty-title">No Events Yet</h3>
                     <p class="empty-text">Start by creating your first event to manage attendance and track
                         participation.</p>
-                    <button class="btn btn-primary" onclick="resetForm()">
-                        <a href="create_event.php" class="normal-link"><i class="fas fa-plus me-2"></i>Create Your First
-                            Event</a>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#eventModal"
+                        onclick="resetForm()">
+                        <i class="fas fa-plus me-2"></i>Create Your First Event
                     </button>
                 </div>
                 <?php endif; ?>
@@ -954,9 +931,87 @@ include "../sidebar/officer_sidebar.php";
         <i class="fas fa-plus"></i>
     </button>
 
+    <!-- Event Modal (Add/Edit) -->
+    <div class="modal fade" id="eventModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle">
+                        <i class="fas fa-calendar-plus me-2"></i>Create New Event
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="eventForm" method="POST" action="">
+                    <div class="modal-body">
+                        <input type="hidden" name="event_id" id="event_id" value="0">
+
+                        <div class="mb-3">
+                            <label class="form-label">Event Name</label>
+                            <input type="text" class="form-control" name="event_name" id="event_name" required
+                                placeholder="Enter event name">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Event Date</label>
+                            <input type="date" class="form-control" name="event_date" id="event_date" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Event Type</label>
+                            <div class="event-type-selector">
+                                <label class="event-type-option">
+                                    <input type="radio" name="event_type" value="whole_day" checked>
+                                    <div class="event-type-card">
+                                        <div class="event-type-icon"><i class="fas fa-sun"></i></div>
+                                        <div class="event-type-label">Whole Day</div>
+                                        <div class="event-type-desc">Full day event</div>
+                                    </div>
+                                </label>
+                                <label class="event-type-option">
+                                    <input type="radio" name="event_type" value="half_day_am">
+                                    <div class="event-type-card">
+                                        <div class="event-type-icon"><i class="fas fa-cloud-sun"></i></div>
+                                        <div class="event-type-label">Half Day - AM</div>
+                                        <div class="event-type-desc">Morning only</div>
+                                    </div>
+                                </label>
+                                <label class="event-type-option">
+                                    <input type="radio" name="event_type" value="half_day_pm">
+                                    <div class="event-type-card">
+                                        <div class="event-type-icon"><i class="fas fa-moon"></i></div>
+                                        <div class="event-type-label">Half Day - PM</div>
+                                        <div class="event-type-desc">Afternoon only</div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Location</label>
+                            <input type="text" class="form-control" name="location" id="location"
+                                placeholder="Enter location (optional)">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" name="description" id="description" rows="3"
+                                placeholder="Enter event description (optional)"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-0 pt-0">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary" id="saveBtn">
+                            <i class="fas fa-save me-2"></i>Save Event
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    // Edit Event Function
+    // Edit Event Function - Populates modal with event data
     function editEvent(event) {
         document.getElementById('event_id').value = event.event_id;
         document.getElementById('event_name').value = event.event_name;
@@ -984,6 +1039,10 @@ include "../sidebar/officer_sidebar.php";
         document.getElementById('modalTitle').innerHTML = '<i class="fas fa-calendar-plus me-2"></i>Create New Event';
         // Set default radio
         document.querySelector('input[name="event_type"][value="whole_day"]').checked = true;
+
+        // Set min date for the date picker
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('event_date').min = today;
     }
 
     // Reset form when modal is closed
@@ -991,10 +1050,7 @@ include "../sidebar/officer_sidebar.php";
         resetForm();
     });
 
-    // Set minimum date to today
-    document.getElementById('event_date').min = new Date().toISOString().split('T')[0];
-
-    // Form validation
+    // Form validation (optional, but can help)
     document.getElementById('eventForm').addEventListener('submit', function(e) {
         const eventName = document.getElementById('event_name').value.trim();
         const eventDate = document.getElementById('event_date').value;
@@ -1010,6 +1066,12 @@ include "../sidebar/officer_sidebar.php";
             alert('Please select an event date');
             return false;
         }
+    });
+
+    // Initialize min date on page load (for new event modal)
+    document.addEventListener('DOMContentLoaded', function() {
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('event_date').min = today;
     });
     </script>
 </body>

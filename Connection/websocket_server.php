@@ -1,5 +1,5 @@
 <?php
-require __DIR__ . '/../vendor/autoload.php';   // Adjust path if needed
+require __DIR__ . '/../vendor/autoload.php';
 
 use Ratchet\MessageComponentInterface;
 use Ratchet\ConnectionInterface;
@@ -10,21 +10,22 @@ use React\EventLoop\Factory as LoopFactory;
 
 class StudentUpdateServer implements MessageComponentInterface
 {
-    protected $clients;
+    protected $clients;                 // SplObjectStorage of all connections
+    protected $students;                 // associative array: student_id => [connections]
     protected $loop;
     protected $internalSocket;
 
     public function __construct($loop)
     {
         $this->clients = new \SplObjectStorage;
+        $this->students = [];
         $this->loop = $loop;
         $this->setupInternalSocket();
     }
 
     protected function setupInternalSocket()
     {
-        // Use a TCP port for internal communication (Windows compatible)
-        $internalPort = 8081;  // Different from WebSocket port 8080
+        $internalPort = 8081;
         $this->internalSocket = stream_socket_server('tcp://127.0.0.1:' . $internalPort, $errno, $errstr);
         if (!$this->internalSocket) {
             echo "Failed to create internal socket: $errstr\n";
@@ -48,14 +49,44 @@ class StudentUpdateServer implements MessageComponentInterface
     protected function handleInternalMessage($data)
     {
         $message = json_decode($data, true);
-        if ($message) {
+        if (!$message) return;
+
+        // If the message has a student_id, send only to that student's connections
+        if (isset($message['student_id'])) {
+            $this->sendToStudent($message['student_id'], json_encode($message));
+        } else {
+            // Otherwise broadcast to all (e.g., general announcements)
             $this->broadcastToAll(json_encode($message));
+        }
+    }
+
+    /**
+     * Send a message to all connections of a specific student
+     */
+    protected function sendToStudent($studentId, $message)
+    {
+        if (isset($this->students[$studentId])) {
+            foreach ($this->students[$studentId] as $conn) {
+                $conn->send($message);
+            }
+        }
+    }
+
+    /**
+     * Broadcast a message to all connected clients
+     */
+    protected function broadcastToAll($message)
+    {
+        foreach ($this->clients as $client) {
+            $client->send($message);
         }
     }
 
     public function onOpen(ConnectionInterface $conn)
     {
         $this->clients->attach($conn);
+        // Initially no student_id assigned
+        $conn->studentId = null;
         echo "New WebSocket connection ({$conn->resourceId})\n";
     }
 
@@ -66,11 +97,34 @@ class StudentUpdateServer implements MessageComponentInterface
 
         switch ($data['type'] ?? '') {
             case 'subscribe':
-                $from->send(json_encode(['type' => 'subscribed', 'channel' => $data['channel'] ?? 'all']));
+                // Expect a student_id in the message
+                if (isset($data['student_id'])) {
+                    $studentId = $data['student_id'];
+
+                    // Remove from any previous student mapping (if already subscribed)
+                    if ($from->studentId !== null && isset($this->students[$from->studentId])) {
+                        $this->students[$from->studentId] = array_filter(
+                            $this->students[$from->studentId],
+                            function($c) use ($from) { return $c !== $from; }
+                        );
+                    }
+
+                    // Add to new student's connection list
+                    if (!isset($this->students[$studentId])) {
+                        $this->students[$studentId] = [];
+                    }
+                    $this->students[$studentId][] = $from;
+                    $from->studentId = $studentId;
+
+                    $from->send(json_encode(['type' => 'subscribed', 'student_id' => $studentId]));
+                    echo "Connection {$from->resourceId} subscribed to student $studentId\n";
+                }
                 break;
+
             case 'ping':
                 $from->send(json_encode(['type' => 'pong']));
                 break;
+
             default:
                 // ignore
         }
@@ -78,7 +132,21 @@ class StudentUpdateServer implements MessageComponentInterface
 
     public function onClose(ConnectionInterface $conn)
     {
+        // Remove from global clients
         $this->clients->detach($conn);
+
+        // Remove from student mapping if present
+        if ($conn->studentId !== null && isset($this->students[$conn->studentId])) {
+            $this->students[$conn->studentId] = array_filter(
+                $this->students[$conn->studentId],
+                function($c) use ($conn) { return $c !== $conn; }
+            );
+            // Clean up empty arrays
+            if (empty($this->students[$conn->studentId])) {
+                unset($this->students[$conn->studentId]);
+            }
+        }
+
         echo "Connection {$conn->resourceId} closed\n";
     }
 
@@ -86,13 +154,6 @@ class StudentUpdateServer implements MessageComponentInterface
     {
         echo "Error: {$e->getMessage()}\n";
         $conn->close();
-    }
-
-    protected function broadcastToAll($message)
-    {
-        foreach ($this->clients as $client) {
-            $client->send($message);
-        }
     }
 }
 
