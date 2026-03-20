@@ -1,6 +1,5 @@
 <?php
 session_start();
-include "../sidebar/officer_sidebar.php";
 require "../../Connection/connection.php";
 
 // Configuration
@@ -28,12 +27,20 @@ function jsonResponse($status, $message, $data = []) {
     exit();
 }
 
-// Helper function to log messages to websocket_messages table
+// Safe logging function – only inserts if the table exists
 function logWebsocketMessage($conn, $action, $details) {
+    static $tableExists = null;
+    if ($tableExists === null) {
+        $result = $conn->query("SHOW TABLES LIKE 'websocket_messages'");
+        $tableExists = $result && $result->num_rows > 0;
+    }
+    if (!$tableExists) return;
+
     $stmt = $conn->prepare("INSERT INTO websocket_messages (message, created_at) VALUES (?, NOW())");
+    if ($stmt === false) return;
     $message = json_encode(['action' => $action, 'details' => $details, 'officer_id' => $_SESSION['officer_id'] ?? null]);
     $stmt->bind_param("s", $message);
-    $stmt->execute();
+    @$stmt->execute();
     $stmt->close();
 }
 
@@ -181,53 +188,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     jsonResponse('error', 'Invalid action.');
 }
 
+// --- For GET requests, include sidebar and display the page ---
+include "../sidebar/officer_sidebar.php";
+
 // --- Filter and Data Fetching ---
 $filter_status = isset($_GET['status']) ? $_GET['status'] : '';
 
-// Fetch fines with student and event details
+// Fetch aggregated student data:
+// total amount, total count, paid count, unpaid count, and unpaid total
 $query = "
     SELECT 
-        sf.fine_id,
         sf.student_id,
         s.full_name AS student_name,
-        sf.event_id,
-        e.event_name AS event_name,
-        sf.fine_reason,
-        sf.amount,
-        sf.status,
-        sf.recorded_at
+        SUM(sf.amount) AS total_amount,
+        COUNT(*) AS total_fines,
+        SUM(CASE WHEN sf.status = 'paid' THEN 1 ELSE 0 END) AS paid_count,
+        SUM(CASE WHEN sf.status = 'unpaid' THEN 1 ELSE 0 END) AS unpaid_count,
+        SUM(CASE WHEN sf.status = 'unpaid' THEN sf.amount ELSE 0 END) AS unpaid_total
     FROM student_fines sf
     LEFT JOIN students s ON sf.student_id = s.student_id
-    LEFT JOIN events e ON sf.event_id = e.event_id
 ";
-if ($filter_status) {
-    $query .= " WHERE sf.status = '" . $conn->real_escape_string($filter_status) . "'";
+if ($filter_status === 'unpaid') {
+    // Show only students who have at least one unpaid fine
+    $query .= " GROUP BY sf.student_id HAVING unpaid_count > 0";
+} elseif ($filter_status === 'paid') {
+    // Show only students who have no unpaid fines (all paid)
+    $query .= " GROUP BY sf.student_id HAVING unpaid_count = 0";
+} else {
+    $query .= " GROUP BY sf.student_id";
 }
-$query .= " ORDER BY sf.recorded_at DESC";
+$query .= " ORDER BY s.full_name ASC";
 $result = $conn->query($query);
-$fines = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+$students_agg = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 
-// Fetch unpaid summary per student for pay-all button
+// Compute totals for the stats cards
+$total_fines = array_sum(array_column($students_agg, 'total_fines'));
+$total_amount = array_sum(array_column($students_agg, 'total_amount'));
+$unpaid_count = array_sum(array_column($students_agg, 'unpaid_count'));
+$unpaid_amount = array_sum(array_column($students_agg, 'unpaid_total'));
+
+// Build unpaid summary array (used for the Pay All button)
 $unpaid_summary = [];
-$unpaid_res = $conn->query("SELECT student_id, COUNT(*) as unpaid_count, SUM(amount) as unpaid_total FROM student_fines WHERE status='unpaid' GROUP BY student_id");
-if ($unpaid_res) {
-    while ($row = $unpaid_res->fetch_assoc()) {
-        $unpaid_summary[$row['student_id']] = $row;
-    }
-}
-
-// Group fines by student for the table with rowspan
-$grouped_fines = [];
-foreach ($fines as $fine) {
-    $sid = $fine['student_id'];
-    if (!isset($grouped_fines[$sid])) {
-        $grouped_fines[$sid] = [
-            'student_id' => $sid,
-            'student_name' => $fine['student_name'] ?? $sid,
-            'fines' => []
+foreach ($students_agg as $student) {
+    if ($student['unpaid_total'] > 0) {
+        $unpaid_summary[$student['student_id']] = [
+            'unpaid_count' => $student['unpaid_count'],
+            'unpaid_total' => $student['unpaid_total']
         ];
     }
-    $grouped_fines[$sid]['fines'][] = $fine;
 }
 
 // Fetch students for dropdown (for add/edit modals)
@@ -243,12 +251,6 @@ $ev_res = $conn->query("SELECT event_id, event_name FROM events ORDER BY event_n
 if ($ev_res) {
     $events = $ev_res->fetch_all(MYSQLI_ASSOC);
 }
-
-// Calculate summary statistics (based on filtered fines)
-$total_fines = count($fines);
-$total_amount = array_sum(array_column($fines, 'amount'));
-$unpaid_count = count(array_filter($fines, fn($f) => $f['status'] === 'unpaid'));
-$unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['status'] === 'unpaid'), 'amount'));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -264,6 +266,7 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
     <!-- Google Font (Inter) -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet">
     <style>
+    /* Your existing styles – unchanged */
     :root {
         --primary: #2563eb;
         --primary-dark: #1d4ed8;
@@ -283,7 +286,6 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
         font-family: 'Inter', system-ui, -apple-system, sans-serif;
         color: var(--dark);
     }
-
 
     .main-contents {
         margin-left: var(--sidebar-width, 250px);
@@ -439,19 +441,6 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
         border-bottom: none;
     }
 
-    .student-group {
-        background: #ffffff;
-    }
-
-    .student-group td {
-        background: white;
-    }
-
-    .student-name {
-        font-weight: 600;
-        color: var(--dark);
-    }
-
     /* Modals */
     .modal-content {
         border-radius: 2rem;
@@ -523,7 +512,6 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
 </head>
 
 <body>
-    <?php include "../sidebar/officer_sidebar.php"; ?>
     <div class="main-contents">
         <div class="container-fluid px-0">
             <!-- Header -->
@@ -542,7 +530,7 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
             <div class="alert alert-success" id="successAlert" role="alert" style="display: none;"></div>
             <div class="alert alert-danger" id="errorAlert" role="alert" style="display: none;"></div>
 
-            <!-- Stats Cards -->
+            <!-- Stats Cards: Four cards as in your image -->
             <div class="row g-4 mb-5">
                 <div class="col-sm-6 col-lg-3">
                     <div class="stats-card d-flex align-items-center">
@@ -611,7 +599,7 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
             </div>
 
             <!-- Main Table -->
-            <?php if (empty($grouped_fines)): ?>
+            <?php if (empty($students_agg)): ?>
             <div class="alert alert-info py-4 text-center">No fines found.</div>
             <?php else: ?>
             <div class="fines-table">
@@ -619,89 +607,40 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
                     <thead>
                         <tr>
                             <th>Student</th>
-                            <th>Event</th>
                             <th>Reason</th>
                             <th>Amount</th>
-                            <th>Date</th>
                             <th>Status</th>
                             <th>Actions</th>
-                            <th>Pay All</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($grouped_fines as $student): 
-                            $fine_count = count($student['fines']);
-                            $first = true;
+                        <?php foreach ($students_agg as $student): 
                             $student_id_esc = htmlspecialchars($student['student_id']);
                             $student_name_esc = htmlspecialchars($student['student_name']);
-                            $unpaid_info = $unpaid_summary[$student['student_id']] ?? null;
+                            $status = ($student['unpaid_count'] == 0) ? 'paid' : 'unpaid';
+                            $status_badge = ($status == 'paid') 
+                                ? '<span class="badge-paid"><i class="bi bi-check-circle-fill"></i> Paid</span>'
+                                : '<span class="badge-unpaid"><i class="bi bi-exclamation-circle-fill"></i> Unpaid</span>';
                         ?>
-                        <?php foreach ($student['fines'] as $index => $fine): ?>
-                        <tr id="fine-row-<?= $fine['fine_id'] ?>" class="student-group">
-                            <?php if ($first): ?>
-                            <td rowspan="<?= $fine_count ?>" class="student-name align-middle">
-                                <?= $student_name_esc ?>
+                        <tr id="student-row-<?= $student_id_esc ?>">
+                            <td class="student-name align-middle"><?= $student_name_esc ?></td>
+                            <td>Absent Event</td>
+                            <td class="fw-semibold">
+                                <?= $config['currency'] ?><?= number_format($student['total_amount'], 2) ?>
                             </td>
-                            <?php $first = false; ?>
-                            <?php endif; ?>
-                            <td><?= htmlspecialchars($fine['event_name'] ?? 'Unknown') ?></td>
-                            <td><?= htmlspecialchars($fine['fine_reason']) ?></td>
-                            <td class="fw-semibold"><?= $config['currency'] ?><?= number_format($fine['amount'], 2) ?>
-                            </td>
-                            <td><?= date($config['date_format'], strtotime($fine['recorded_at'])) ?></td>
+                            <td><?= $status_badge ?></td>
                             <td>
-                                <?php if ($fine['status'] === 'paid'): ?>
-                                <span class="badge-paid"><i class="bi bi-check-circle-fill"></i> Paid</span>
-                                <?php else: ?>
-                                <span class="badge-unpaid"><i class="bi bi-exclamation-circle-fill"></i> Unpaid</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <!-- Edit -->
-                                <button class="btn btn-sm btn-outline-primary btn-icon edit-btn"
-                                    data-id="<?= $fine['fine_id'] ?>"
-                                    data-student="<?= htmlspecialchars($fine['student_id']) ?>"
-                                    data-event="<?= $fine['event_id'] ?>"
-                                    data-reason="<?= htmlspecialchars($fine['fine_reason']) ?>"
-                                    data-amount="<?= $fine['amount'] ?>" data-status="<?= $fine['status'] ?>"
-                                    title="Edit Fine">
-                                    <i class="bi bi-pencil"></i>
-                                </button>
-
-                                <!-- Pay/Unpay -->
-                                <?php if ($fine['status'] === 'unpaid'): ?>
-                                <button class="btn btn-sm btn-success btn-icon pay-btn"
-                                    data-id="<?= $fine['fine_id'] ?>" title="Mark as Paid">
-                                    <i class="bi bi-cash-stack"></i>
-                                </button>
-                                <?php else: ?>
-                                <button class="btn btn-sm btn-warning btn-icon unpay-btn"
-                                    data-id="<?= $fine['fine_id'] ?>" title="Mark as Unpaid">
-                                    <i class="bi bi-arrow-return-left"></i>
-                                </button>
-                                <?php endif; ?>
-
-                                <!-- Delete -->
-                                <button class="btn btn-sm btn-outline-danger btn-icon delete-btn"
-                                    data-id="<?= $fine['fine_id'] ?>" title="Delete Fine">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </td>
-                            <?php if ($index === 0): ?>
-                            <td rowspan="<?= $fine_count ?>" class="align-middle">
-                                <?php if ($unpaid_info && $unpaid_info['unpaid_count'] > 0): ?>
+                                <?php if ($student['unpaid_count'] > 0): ?>
                                 <button class="btn pay-all-btn" data-student="<?= $student_id_esc ?>"
                                     title="Pay all unpaid fines for this student">
                                     <i class="bi bi-cash me-1"></i> Pay All
-                                    <?= $config['currency'] ?><?= number_format($unpaid_info['unpaid_total'], 2) ?>
+                                    <?= $config['currency'] ?><?= number_format($student['unpaid_total'], 2) ?>
                                 </button>
                                 <?php else: ?>
-                                <span class="text-muted small">No unpaid</span>
+                                <span class="text-muted small">All paid</span>
                                 <?php endif; ?>
                             </td>
-                            <?php endif; ?>
                         </tr>
-                        <?php endforeach; ?>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
@@ -710,7 +649,7 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
         </div>
     </div>
 
-    <!-- Add Fine Modal -->
+    <!-- Add Fine Modal (unchanged) -->
     <div class="modal fade" id="addFineModal" tabindex="-1" aria-labelledby="addFineModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -746,7 +685,7 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
                             <label for="add_reason" class="form-label">Fine Reason <span
                                     class="text-danger">*</span></label>
                             <input type="text" class="form-control" id="add_reason" name="fine_reason" required
-                                maxlength="100">
+                                maxlength="100" value="Absent Event">
                         </div>
                         <div class="mb-3">
                             <label for="add_amount" class="form-label">Amount (<?= $config['currency'] ?>) <span
@@ -769,72 +708,6 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
                     <button type="button" class="btn btn-primary rounded-pill px-5" id="saveFineBtn">
                         <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
                         <span class="btn-text">Save Fine</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Edit Fine Modal -->
-    <div class="modal fade" id="editFineModal" tabindex="-1" aria-labelledby="editFineModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="editFineModalLabel"><i class="bi bi-pencil-square me-2"></i>Edit Fine
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="editFineForm">
-                        <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                        <input type="hidden" id="edit_fine_id" name="fine_id">
-                        <div class="mb-3">
-                            <label for="edit_student" class="form-label">Student <span
-                                    class="text-danger">*</span></label>
-                            <select class="form-select" id="edit_student" name="student_id" required>
-                                <option value="">Select Student</option>
-                                <?php foreach ($students as $s): ?>
-                                <option value="<?= htmlspecialchars($s['student_id']) ?>">
-                                    <?= htmlspecialchars($s['name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label for="edit_event" class="form-label">Event <span class="text-danger">*</span></label>
-                            <select class="form-select" id="edit_event" name="event_id" required>
-                                <option value="">Select Event</option>
-                                <?php foreach ($events as $e): ?>
-                                <option value="<?= $e['event_id'] ?>"><?= htmlspecialchars($e['event_name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label for="edit_reason" class="form-label">Fine Reason <span
-                                    class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="edit_reason" name="fine_reason" required
-                                maxlength="100">
-                        </div>
-                        <div class="mb-3">
-                            <label for="edit_amount" class="form-label">Amount (<?= $config['currency'] ?>) <span
-                                    class="text-danger">*</span></label>
-                            <input type="number" step="0.01" min="0.01" class="form-control" id="edit_amount"
-                                name="amount" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="edit_status" class="form-label">Status</label>
-                            <select class="form-select" id="edit_status" name="status">
-                                <option value="unpaid">Unpaid</option>
-                                <option value="paid">Paid</option>
-                            </select>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4"
-                        data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary rounded-pill px-5" id="updateFineBtn">
-                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                        <span class="btn-text">Update Fine</span>
                     </button>
                 </div>
             </div>
@@ -892,124 +765,6 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
             });
         });
 
-        // Edit: populate modal
-        $('.edit-btn').click(function() {
-            const btn = $(this);
-            $('#edit_fine_id').val(btn.data('id'));
-            $('#edit_student').val(btn.data('student'));
-            $('#edit_event').val(btn.data('event'));
-            $('#edit_reason').val(btn.data('reason'));
-            $('#edit_amount').val(btn.data('amount'));
-            $('#edit_status').val(btn.data('status'));
-            $('#editFineModal').modal('show');
-        });
-
-        // Update Fine
-        $('#updateFineBtn').click(function() {
-            const btn = $(this);
-            const form = $('#editFineForm')[0];
-
-            if (!form.checkValidity()) {
-                form.reportValidity();
-                return;
-            }
-
-            const formData = new FormData(form);
-            formData.append('action', 'edit');
-
-            btn.addClass('btn-loading').prop('disabled', true);
-
-            $.ajax({
-                url: window.location.href,
-                type: 'POST',
-                data: formData,
-                processData: false,
-                contentType: false,
-                dataType: 'json',
-                success: function(res) {
-                    btn.removeClass('btn-loading').prop('disabled', false);
-                    if (res.status === 'success') {
-                        showAlert('success', res.message);
-                        $('#editFineModal').modal('hide');
-                        setTimeout(() => location.reload(), 1000);
-                    } else {
-                        showAlert('error', res.message);
-                    }
-                },
-                error: function() {
-                    btn.removeClass('btn-loading').prop('disabled', false);
-                    showAlert('error', 'Network error. Please try again.');
-                }
-            });
-        });
-
-        // Delete Fine with confirmation
-        $('.delete-btn').click(function() {
-            if (!confirm('Are you sure you want to delete this fine? This action cannot be undone.'))
-                return;
-
-            const fineId = $(this).data('id');
-
-            $.ajax({
-                url: window.location.href,
-                type: 'POST',
-                data: {
-                    action: 'delete',
-                    fine_id: fineId,
-                    csrf_token: '<?= $_SESSION['csrf_token'] ?>'
-                },
-                dataType: 'json',
-                success: function(res) {
-                    if (res.status === 'success') {
-                        showAlert('success', res.message);
-                        $('#fine-row-' + fineId).remove();
-                        setTimeout(() => location.reload(), 1000);
-                    } else {
-                        showAlert('error', res.message);
-                    }
-                },
-                error: function() {
-                    showAlert('error', 'Network error. Please try again.');
-                }
-            });
-        });
-
-        // Pay / Unpay functions
-        $('.pay-btn').click(function() {
-            const fineId = $(this).data('id');
-            performToggle(fineId, 'paid');
-        });
-
-        $('.unpay-btn').click(function() {
-            const fineId = $(this).data('id');
-            performToggle(fineId, 'unpaid');
-        });
-
-        function performToggle(fineId, newStatus) {
-            $.ajax({
-                url: window.location.href,
-                type: 'POST',
-                data: {
-                    action: 'toggle_status',
-                    fine_id: fineId,
-                    status: newStatus,
-                    csrf_token: '<?= $_SESSION['csrf_token'] ?>'
-                },
-                dataType: 'json',
-                success: function(res) {
-                    if (res.status === 'success') {
-                        showAlert('success', res.message);
-                        setTimeout(() => location.reload(), 1000);
-                    } else {
-                        showAlert('error', res.message);
-                    }
-                },
-                error: function() {
-                    showAlert('error', 'Network error. Please try again.');
-                }
-            });
-        }
-
         // Pay All Unpaid for a student
         $('.pay-all-btn').click(function() {
             const studentId = $(this).data('student');
@@ -1043,40 +798,6 @@ $unpaid_amount = array_sum(array_column(array_filter($fines, fn($f) => $f['statu
             $('.alert').fadeOut();
         });
     });
-
-    // --- WebSocket Client (for real-time updates) ---
-    (function() {
-        const wsUrl = 'ws://localhost:8080'; // Change to your WebSocket server
-        let socket;
-
-        function connectWebSocket() {
-            try {
-                socket = new WebSocket(wsUrl);
-
-                socket.onopen = function() {
-                    console.log('WebSocket connected');
-                };
-
-                socket.onmessage = function(event) {
-                    console.log('WebSocket message:', event.data);
-                };
-
-                socket.onerror = function(error) {
-                    console.log('WebSocket error:', error);
-                };
-
-                socket.onclose = function() {
-                    console.log('WebSocket disconnected, reconnecting in 3s...');
-                    setTimeout(connectWebSocket, 3000);
-                };
-            } catch (e) {
-                console.log('WebSocket connection failed:', e);
-            }
-        }
-
-        // Uncomment if you have a WebSocket server running
-        // connectWebSocket();
-    })();
     </script>
 </body>
 
