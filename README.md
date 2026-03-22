@@ -1,4 +1,4 @@
-# Self-Service Fast Food Ordering System
+# BITS Event Attendance Management System 
 
 BEAMS (BITS Event Attendance Management System) is a web-based system built using PHP that helps manage student attendance during events. It allows officers to track attendance, monitor absences, and automatically apply fines for missed log-in or log-out times.
 
