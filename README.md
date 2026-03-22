@@ -54,6 +54,8 @@ The system simulates multiple terminals:
 │   │── Footer.php
 │   │── Header.php
 │
+│── /Vendor
+|
 │── /Views
 │   │── /officerpage
 │   │   │── create_event.php
@@ -63,6 +65,7 @@ The system simulates multiple terminals:
 │   │   │── manage_student.php
 │   │   │── officer_dashboard.php
 │   │   │── officer_register.php
+│   │   │── last_fine_run.txt
 │   │
 │   │── /sidebar
 │   │   │── officer_sidebar.php
@@ -75,7 +78,6 @@ The system simulates multiple terminals:
 │   │   │── student_fines.php
 │   │   │── student_profile.php
 │
-│── last_fine_run.txt
 │── composer.json
 │── composer.lock
 │── index.php
