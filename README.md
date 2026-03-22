@@ -35,7 +35,8 @@ The system simulates multiple terminals:
 4. Run WebSocket server: `php websocket_server.php`
 5. Access system via browser using `http://localhost/beams/`
 
-## Project Structure
+## 📂 Project Structure
+```
 /beams
 │── /Auth
 │   │── login_officer.php
@@ -43,39 +44,45 @@ The system simulates multiple terminals:
 │   │── logout.php
 │   │── officer_register.php
 │   │── student_register.php
+│
 │── /Connection
 │   │── connection.php
-│   │── websocket_Server.php
-│   │── generate_fines_cron.php
+│
 │── /Includes
+│   │── websocket_server.php
+│   │── generate_fines_cron.php
 │   │── Footer.php
 │   │── Header.php
-│── /Vendor
+│
 │── /Views
 │   │── /officerpage
 │   │   │── create_event.php
 │   │   │── get_event_details.php
-│   │   │── last_fine_run.txt
 │   │   │── manage_event.php
 │   │   │── manage_fines.php
 │   │   │── manage_student.php
 │   │   │── officer_dashboard.php
 │   │   │── officer_register.php
+│   │
 │   │── /sidebar
 │   │   │── officer_sidebar.php
 │   │   │── student_sidebar.php
+│   │
 │   │── /studentpage
 │   │   │── student_attendance.php
 │   │   │── student_dashboard.php
 │   │   │── student_event.php
 │   │   │── student_fines.php
 │   │   │── student_profile.php
+│
+│── last_fine_run.txt
 │── composer.json
 │── composer.lock
 │── index.php
-│── officer_Login.php
+│── officer_login.php
 │── registration.php
-│── studentLogin
+│── student_login.php
+```
 
 ## 🤝 Contributing
 Contributions are welcome! You can fork this repository and submit a pull request.
