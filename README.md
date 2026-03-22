@@ -93,6 +93,7 @@ Contributions are welcome! You can fork this repository and submit a pull reques
 Educational use only. Not for commercial deployment.
 
 ## 👨‍💻 Author
+```
 Jomarie M. Alcaria
 Dave Nier M. Alaya-ay
 James J. Diongzon
@@ -101,3 +102,4 @@ Velee Ensoy
 TG Grahambelle Gomez
 Kearlstinne Annrae L. Rufin 
 BSIT Student
+```
