@@ -47,10 +47,10 @@ The system simulates multiple terminals:
 │
 │── /Connection
 │   │── connection.php
+│   │── generate_fines_cron.php
+│   │── websocket_server.php
 │
 │── /Includes
-│   │── websocket_server.php
-│   │── generate_fines_cron.php
 │   │── Footer.php
 │   │── Header.php
 │
