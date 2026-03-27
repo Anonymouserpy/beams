@@ -610,26 +610,7 @@ $upcoming = $conn->query("
         color: #2d3748;
     }
 
-    .btn-modal-edit {
-        background: var(--primary-gradient);
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 6px;
-        font-weight: 600;
-        font-size: 0.85rem;
-        transition: all 0.2s ease;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-    }
 
-    .btn-modal-edit:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        color: white;
-    }
 
     /* Empty State */
     .empty-state {
@@ -1008,9 +989,7 @@ $upcoming = $conn->query("
                         <button type="button" class="btn-modal-close" data-bs-dismiss="modal">
                             <i class="bi bi-x-lg"></i> Close
                         </button>
-                        <a href="#" id="modalEditLink" class="btn-modal-edit">
-                            <i class="bi bi-pencil-square"></i> Edit Event
-                        </a>
+
                     </div>
                 </div>
             </div>
