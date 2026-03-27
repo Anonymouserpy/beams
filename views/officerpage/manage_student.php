@@ -115,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['ajax_action'])) {
     $password = isset($_POST['password']) ? $_POST['password'] : '';
 
     // Validate year level (1-5 for college)
-    if ($year_level < 1 || $year_level > 5) {
+    if ($year_level < 1 || $year_level > 4) {
         $year_level = 1;
     }
 
@@ -1383,7 +1383,6 @@ require "../sidebar/officer_sidebar.php";
                 <button class="filter-tab" onclick="filterByYear(event, 2)">2nd Year</button>
                 <button class="filter-tab" onclick="filterByYear(event, 3)">3rd Year</button>
                 <button class="filter-tab" onclick="filterByYear(event, 4)">4th Year</button>
-                <button class="filter-tab" onclick="filterByYear(event, 5)">5th Year</button>
             </div>
 
             <div class="students-grid" id="studentsGrid">
