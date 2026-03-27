@@ -1,86 +1,249 @@
 <?php
+/**
+ * create_event.php
+ * Officer portal for creating new events.
+ */
+
 session_start();
-require "../sidebar/officer_sidebar.php";
+
 require "../../Connection/connection.php";
 
+// Authentication check
 if (!isset($_SESSION['officer_id'])) {
     header("Location: ../../officer_Login.php");
     exit();
 }
 
-$officer_id = $_SESSION['officer_id'];
-$msg = "";
-$msg_type = "";
+// -----------------------------------------------------------------------------
+// Helper Functions
+// -----------------------------------------------------------------------------
+
+/**
+ * Sends a WebSocket message to the internal server.
+ * @param array $data Payload to send.
+ * @return bool True on success, false on failure.
+ */
+function sendWebSocketMessage(array $data): bool {
+    $socket = @fsockopen('127.0.0.1', 8081, $errno, $errstr, 1);
+    if (!$socket) {
+        error_log("WebSocket internal socket error: $errstr ($errno)");
+        return false;
+    }
+    fwrite($socket, json_encode($data));
+    fclose($socket);
+    return true;
+}
+
+/**
+ * Generates a CSRF token if not already set.
+ */
+function generateCsrfToken(): void {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+}
+
+// -----------------------------------------------------------------------------
+// CSRF Token
+// -----------------------------------------------------------------------------
+generateCsrfToken();
+
+// -----------------------------------------------------------------------------
+// Handle Form Submission
+// -----------------------------------------------------------------------------
+$msg = '';
+$msg_type = '';
+$form_data = []; // To retain values on error
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $event_name = trim($_POST['event_name']);
-    $event_date = $_POST['event_date'];
-    $event_type = $_POST['event_type'];
-    $half_day_period = $_POST['half_day_period'] ?? null;
-    $location = trim($_POST['location'] ?? '');
-    $description = trim($_POST['description'] ?? '');
-
-    // Validation
-    if (empty($event_name) || empty($event_date)) {
-        $msg = "Please fill in all required fields.";
-        $msg_type = "danger";
+    // CSRF validation
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        $msg = 'Invalid security token. Please refresh the page and try again.';
+        $msg_type = 'danger';
     } else {
-        $is_am_active = ($event_type === 'whole_day') || ($event_type === 'half_day' && $half_day_period === 'am');
-        $is_pm_active = ($event_type === 'whole_day') || ($event_type === 'half_day' && $half_day_period === 'pm');
+        // Collect and sanitize input
+        $event_name   = trim($_POST['event_name'] ?? '');
+        $event_date   = $_POST['event_date'] ?? '';
+        $event_type   = $_POST['event_type'] ?? 'whole_day';
+        $half_day_period = $_POST['half_day_period'] ?? null;
+        $location     = trim($_POST['location'] ?? '');
+        $description  = trim($_POST['description'] ?? '');
 
-        // AM times
-        $am_login_start = $is_am_active ? $_POST['am_login_start'] : NULL;
-        $am_login_end   = $is_am_active ? $_POST['am_login_end'] : NULL;
-        $am_logout_start = $is_am_active ? $_POST['am_logout_start'] : NULL;
-        $am_logout_end   = $is_am_active ? $_POST['am_logout_end'] : NULL;
-
-        // PM times
-        $pm_login_start = $is_pm_active ? $_POST['pm_login_start'] : NULL;
-        $pm_login_end   = $is_pm_active ? $_POST['pm_login_end'] : NULL;
-        $pm_logout_start = $is_pm_active ? $_POST['pm_logout_start'] : NULL;
-        $pm_logout_end   = $is_pm_active ? $_POST['pm_logout_end'] : NULL;
-
-        // Fines
-        $miss_am_login = $is_am_active ? floatval($_POST['miss_am_login']) : 0;
-        $miss_am_logout = $is_am_active ? floatval($_POST['miss_am_logout']) : 0;
-        $miss_pm_login = $is_pm_active ? floatval($_POST['miss_pm_login']) : 0;
-        $miss_pm_logout = $is_pm_active ? floatval($_POST['miss_pm_logout']) : 0;
-
-        // Database insertion - NOW WITH location AND description
-        $stmt = $conn->prepare("INSERT INTO events (event_name, event_date, event_type, half_day_period, location, description, created_by, created_at) VALUES (?,?,?,?,?,?,?,NOW())");
-        $stmt->bind_param("ssssssi", $event_name, $event_date, $event_type, $half_day_period, $location, $description, $officer_id);
-        
-        if($stmt->execute()){
-            $event_id = $stmt->insert_id;
-
-            $stmt2 = $conn->prepare("INSERT INTO attendance_schedule 
-                (event_id, am_login_start, am_login_end, am_logout_start, am_logout_end, pm_login_start, pm_login_end, pm_logout_start, pm_logout_end) 
-                VALUES (?,?,?,?,?,?,?,?,?)");
-            $stmt2->bind_param("issssssss", $event_id, $am_login_start, $am_login_end, $am_logout_start, $am_logout_end, $pm_login_start, $pm_login_end, $pm_logout_start, $pm_logout_end);
-            $stmt2->execute();
-
-            $stmt3 = $conn->prepare("INSERT INTO event_fines 
-                (event_id, miss_am_login, miss_am_logout, miss_pm_login, miss_pm_logout) 
-                VALUES (?,?,?,?,?)");
-            $stmt3->bind_param("idddd", $event_id, $miss_am_login, $miss_am_logout, $miss_pm_login, $miss_pm_logout);
-            $stmt3->execute();
-
-            $msg = "Event created successfully! Redirecting...";
-            $msg_type = "success";
-            
-            // Optional: Redirect after success
-            // header("Refresh: 2; URL=events_list.php");
+        // Basic validation
+        if (empty($event_name) || empty($event_date)) {
+            $msg = 'Event name and date are required.';
+            $msg_type = 'danger';
+        } elseif (!strtotime($event_date)) {
+            $msg = 'Please provide a valid event date.';
+            $msg_type = 'danger';
         } else {
-            $msg = "Error creating event: " . $stmt->error;
-            $msg_type = "danger";
+            // Validate event type
+            $valid_types = ['whole_day', 'half_day'];
+            if (!in_array($event_type, $valid_types)) {
+                $event_type = 'whole_day';
+            }
+
+            // For half-day, period must be selected
+            if ($event_type === 'half_day' && !in_array($half_day_period, ['am', 'pm'])) {
+                $msg = 'Please select a period (AM or PM) for half-day event.';
+                $msg_type = 'danger';
+            }
+
+            if (empty($msg)) {
+                // Determine which sessions are active
+                $is_am_active = ($event_type === 'whole_day') ||
+                                ($event_type === 'half_day' && $half_day_period === 'am');
+                $is_pm_active = ($event_type === 'whole_day') ||
+                                ($event_type === 'half_day' && $half_day_period === 'pm');
+
+                // AM times (only if active)
+                $am_login_start  = $is_am_active ? ($_POST['am_login_start'] ?? null) : null;
+                $am_login_end    = $is_am_active ? ($_POST['am_login_end'] ?? null) : null;
+                $am_logout_start = $is_am_active ? ($_POST['am_logout_start'] ?? null) : null;
+                $am_logout_end   = $is_am_active ? ($_POST['am_logout_end'] ?? null) : null;
+
+                // PM times (only if active)
+                $pm_login_start  = $is_pm_active ? ($_POST['pm_login_start'] ?? null) : null;
+                $pm_login_end    = $is_pm_active ? ($_POST['pm_login_end'] ?? null) : null;
+                $pm_logout_start = $is_pm_active ? ($_POST['pm_logout_start'] ?? null) : null;
+                $pm_logout_end   = $is_pm_active ? ($_POST['pm_logout_end'] ?? null) : null;
+
+                // Validate time ranges if present
+                $time_errors = [];
+                if ($am_login_start && $am_login_end && $am_login_start >= $am_login_end) {
+                    $time_errors[] = 'AM Login start must be before end.';
+                }
+                if ($am_logout_start && $am_logout_end && $am_logout_start >= $am_logout_end) {
+                    $time_errors[] = 'AM Logout start must be before end.';
+                }
+                if ($pm_login_start && $pm_login_end && $pm_login_start >= $pm_login_end) {
+                    $time_errors[] = 'PM Login start must be before end.';
+                }
+                if ($pm_logout_start && $pm_logout_end && $pm_logout_start >= $pm_logout_end) {
+                    $time_errors[] = 'PM Logout start must be before end.';
+                }
+
+                if (!empty($time_errors)) {
+                    $msg = implode(' ', $time_errors);
+                    $msg_type = 'danger';
+                } else {
+                    // Fine amounts
+                    $miss_am_login   = $is_am_active ? (float)($_POST['miss_am_login'] ?? 0) : 0;
+                    $miss_am_logout  = $is_am_active ? (float)($_POST['miss_am_logout'] ?? 0) : 0;
+                    $miss_pm_login   = $is_pm_active ? (float)($_POST['miss_pm_login'] ?? 0) : 0;
+                    $miss_pm_logout  = $is_pm_active ? (float)($_POST['miss_pm_logout'] ?? 0) : 0;
+
+                    // Start transaction
+                    $conn->begin_transaction();
+                    try {
+                        // Insert into events table
+                        $stmt = $conn->prepare("INSERT INTO events
+                            (event_name, event_date, event_type, half_day_period, location, description, created_by, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
+                        $stmt->bind_param("ssssssi", $event_name, $event_date, $event_type, $half_day_period, $location, $description, $_SESSION['officer_id']);
+                        if (!$stmt->execute()) {
+                            throw new Exception("Failed to create event: " . $stmt->error);
+                        }
+                        $event_id = $stmt->insert_id;
+
+                        // Insert attendance schedule
+                        $stmt2 = $conn->prepare("INSERT INTO attendance_schedule
+                            (event_id, am_login_start, am_login_end, am_logout_start, am_logout_end,
+                             pm_login_start, pm_login_end, pm_logout_start, pm_logout_end)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        $stmt2->bind_param("issssssss", $event_id, $am_login_start, $am_login_end, $am_logout_start, $am_logout_end,
+                                                            $pm_login_start, $pm_login_end, $pm_logout_start, $pm_logout_end);
+                        if (!$stmt2->execute()) {
+                            throw new Exception("Failed to insert attendance schedule: " . $stmt2->error);
+                        }
+
+                        // Insert fine settings
+                        $stmt3 = $conn->prepare("INSERT INTO event_fines
+                            (event_id, miss_am_login, miss_am_logout, miss_pm_login, miss_pm_logout)
+                            VALUES (?, ?, ?, ?, ?)");
+                        $stmt3->bind_param("idddd", $event_id, $miss_am_login, $miss_am_logout, $miss_pm_login, $miss_pm_logout);
+                        if (!$stmt3->execute()) {
+                            throw new Exception("Failed to insert fine settings: " . $stmt3->error);
+                        }
+
+                        $conn->commit();
+
+                        // WebSocket broadcast
+                        $wsData = [
+                            'type' => 'EVENT_CREATED',
+                            'payload' => [
+                                'event_id'          => $event_id,
+                                'event_name'        => $event_name,
+                                'event_date'        => $event_date,
+                                'event_type'        => $event_type,
+                                'half_day_period'   => $half_day_period,
+                                'description'       => $description,
+                                'location'          => $location,
+                                'created_by'        => $_SESSION['officer_id'],
+                                'am_login_start'    => $am_login_start,
+                                'am_login_end'      => $am_login_end,
+                                'am_logout_start'   => $am_logout_start,
+                                'am_logout_end'     => $am_logout_end,
+                                'pm_login_start'    => $pm_login_start,
+                                'pm_login_end'      => $pm_login_end,
+                                'pm_logout_start'   => $pm_logout_start,
+                                'pm_logout_end'     => $pm_logout_end,
+                                'miss_am_login'     => $miss_am_login,
+                                'miss_am_logout'    => $miss_am_logout,
+                                'miss_pm_login'     => $miss_pm_login,
+                                'miss_pm_logout'    => $miss_pm_logout
+                            ]
+                        ];
+                        sendWebSocketMessage($wsData);
+
+                        // Success - redirect after a short delay
+                        $msg = "Event created successfully! Redirecting...";
+                        $msg_type = "success";
+                        header("Refresh: 2; URL=manage_event.php");
+                        exit();
+                    } catch (Exception $e) {
+                        $conn->rollback();
+                        error_log("Event creation error: " . $e->getMessage());
+                        $msg = "An error occurred while creating the event: " . $e->getMessage();
+                        $msg_type = "danger";
+                        // Retain submitted data for repopulation
+                        $form_data = $_POST;
+                    }
+                }
+            }
         }
     }
 }
 
-// Get officer name for display
-$officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : 'Officer';
-?>
+// -----------------------------------------------------------------------------
+// Prepare default values for form (if not set from POST)
+// -----------------------------------------------------------------------------
+$defaults = [
+    'event_name'        => $form_data['event_name'] ?? '',
+    'event_date'        => $form_data['event_date'] ?? '',
+    'event_type'        => $form_data['event_type'] ?? 'whole_day',
+    'half_day_period'   => $form_data['half_day_period'] ?? '',
+    'location'          => $form_data['location'] ?? '',
+    'description'       => $form_data['description'] ?? '',
+    'am_login_start'    => $form_data['am_login_start'] ?? '08:00',
+    'am_login_end'      => $form_data['am_login_end'] ?? '09:00',
+    'am_logout_start'   => $form_data['am_logout_start'] ?? '12:00',
+    'am_logout_end'     => $form_data['am_logout_end'] ?? '13:00',
+    'pm_login_start'    => $form_data['pm_login_start'] ?? '13:00',
+    'pm_login_end'      => $form_data['pm_login_end'] ?? '14:00',
+    'pm_logout_start'   => $form_data['pm_logout_start'] ?? '17:00',
+    'pm_logout_end'     => $form_data['pm_logout_end'] ?? '18:00',
+    'miss_am_login'     => $form_data['miss_am_login'] ?? '5.00',
+    'miss_am_logout'    => $form_data['miss_am_logout'] ?? '5.00',
+    'miss_pm_login'     => $form_data['miss_pm_login'] ?? '5.00',
+    'miss_pm_logout'    => $form_data['miss_pm_logout'] ?? '5.00',
+];
 
+// -----------------------------------------------------------------------------
+// Include sidebar (only after all processing is done)
+// -----------------------------------------------------------------------------
+require "../sidebar/officer_sidebar.php";
+?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -92,18 +255,21 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
         rel="stylesheet">
-
     <style>
+    /* Modern styling – keep your existing CSS but ensure it's consistent */
     :root {
-        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        --success-gradient: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        --warning-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        --glass-bg: rgba(255, 255, 255, 0.95);
-        --shadow-soft: 0 10px 40px -10px rgba(0, 0, 0, 0.1);
-        --shadow-hover: 0 20px 60px -15px rgba(0, 0, 0, 0.15);
-        --radius-lg: 20px;
-        --radius-md: 12px;
-        --radius-sm: 8px;
+        --primary: #4361ee;
+        --primary-dark: #3a56d4;
+        --secondary: #3f37c9;
+        --success: #4cc9f0;
+        --danger: #f72585;
+        --warning: #f8961e;
+        --light: #f8f9fa;
+        --dark: #212529;
+        --gray: #6c757d;
+        --border-radius: 12px;
+        --box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+        --transition: all 0.3s ease;
     }
 
     * {
@@ -112,473 +278,220 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
         box-sizing: border-box;
     }
 
-    .main-contents {
-        margin-left: var(--sidebar-width, 250px);
-        transition: margin-left 0.3s ease;
-    }
-
-
     body {
         font-family: 'Inter', sans-serif;
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        min-height: 100vh;
-        color: #2d3748;
+        background: #f5f7fb;
+        color: var(--dark);
     }
 
-    /* Page Header */
-    .page-header {
-        background: white;
-        padding: 2rem 0;
-        margin-bottom: 2rem;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-        position: relative;
-        overflow: hidden;
+    .main-contents {
+        margin-left: 220px;
+        padding: 30px;
+        transition: var(--transition);
     }
 
-    .page-header::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 4px;
-        background: var(--primary-gradient);
+    @media (max-width: 992px) {
+        .main-contents {
+            margin-left: 0;
+            padding: 20px;
+        }
     }
 
-    .breadcrumb-nav {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        color: #718096;
-        font-size: 0.875rem;
-        margin-bottom: 0.5rem;
-    }
-
-    .breadcrumb-nav a {
-        color: #667eea;
-        text-decoration: none;
-        font-weight: 500;
-    }
-
-    .breadcrumb-nav a:hover {
-        text-decoration: underline;
-    }
-
-    .page-title {
-        font-size: 1.75rem;
-        font-weight: 800;
-        color: #1a202c;
-        margin: 0;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-
-    /* Main Card */
     .main-card {
-        background: var(--glass-bg);
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow-soft);
-        border: 1px solid rgba(255, 255, 255, 0.5);
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--box-shadow);
         overflow: hidden;
-        backdrop-filter: blur(10px);
+        margin-bottom: 30px;
     }
 
     .card-header-custom {
-        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-        padding: 1.5rem 2rem;
-        border-bottom: 1px solid #e2e8f0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px 25px;
+        color: white;
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap;
     }
 
     .header-icon {
         width: 50px;
         height: 50px;
-        background: var(--primary-gradient);
-        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: white;
-        font-size: 1.5rem;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        font-size: 24px;
     }
 
-    /* Form Sections */
+    .custom-alert {
+        padding: 15px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 25px;
+    }
+
+    .alert-success {
+        background: #d4edda;
+        border-left: 4px solid #28a745;
+        color: #155724;
+    }
+
+    .alert-danger {
+        background: #f8d7da;
+        border-left: 4px solid #dc3545;
+        color: #721c24;
+    }
+
     .form-section {
         background: white;
-        border-radius: var(--radius-md);
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
-        border: 1px solid #e2e8f0;
-        transition: all 0.3s ease;
-    }
-
-    .form-section:hover {
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-        border-color: #cbd5e0;
+        border-radius: var(--border-radius);
+        padding: 20px;
+        margin-bottom: 25px;
+        border: 1px solid #eef2f6;
+        transition: var(--transition);
     }
 
     .section-header {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        margin-bottom: 1.25rem;
-        padding-bottom: 0.75rem;
-        border-bottom: 2px solid #f1f5f9;
+        gap: 12px;
+        margin-bottom: 20px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #eef2f6;
     }
 
     .section-icon {
-        width: 36px;
-        height: 36px;
+        width: 40px;
+        height: 40px;
+        background: rgba(67, 97, 238, 0.1);
         border-radius: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.1rem;
+        font-size: 20px;
     }
 
     .section-icon.info {
-        background: #eef2ff;
-        color: #667eea;
+        background: rgba(72, 149, 239, 0.1);
+        color: #4895ef;
     }
 
     .section-icon.am {
-        background: #fff7ed;
-        color: #f97316;
+        background: rgba(248, 150, 30, 0.1);
+        color: #f8961e;
     }
 
     .section-icon.pm {
-        background: #eff6ff;
-        color: #3b82f6;
-    }
-
-    .section-icon.fine {
-        background: #f0fdf4;
-        color: #22c55e;
-    }
-
-    .section-icon.location {
-        background: #fef3c7;
-        color: #d97706;
+        background: rgba(114, 9, 183, 0.1);
+        color: #7209b7;
     }
 
     .section-title {
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: #1e293b;
+        font-size: 1.2rem;
+        font-weight: 600;
         margin: 0;
     }
 
-    /* Form Controls */
-    .form-label {
-        font-weight: 600;
-        color: #475569;
-        font-size: 0.875rem;
-        margin-bottom: 0.5rem;
-    }
-
-    .form-control,
-    .form-select {
-        border: 2px solid #e2e8f0;
-        border-radius: var(--radius-sm);
-        padding: 0.75rem 1rem;
-        font-size: 0.95rem;
-        transition: all 0.2s ease;
-        background: #fafafa;
-    }
-
-    .form-control:focus,
-    .form-select:focus {
-        border-color: #667eea;
-        background: white;
-        box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
-    }
-
-    textarea.form-control {
-        resize: vertical;
-        min-height: 100px;
-    }
-
-    .input-group-text {
-        background: #f1f5f9;
-        border: 2px solid #e2e8f0;
-        border-right: none;
-        color: #64748b;
-        font-weight: 600;
-    }
-
-    .input-group .form-control {
-        border-left: none;
-    }
-
-    /* Event Type Selector */
-    .event-type-card {
-        border: 2px solid #e2e8f0;
-        border-radius: var(--radius-md);
-        padding: 1.25rem;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        text-align: center;
-        background: white;
-    }
-
-    .event-type-card:hover {
-        border-color: #cbd5e0;
-        transform: translateY(-2px);
-    }
-
-    .event-type-card.active {
-        border-color: #667eea;
-        background: #eef2ff;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
-    }
-
-    .event-type-card.selected {
-        border-color: #667eea;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-    }
-
-    .event-type-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin: 0 auto 0.75rem;
-        font-size: 1.5rem;
-        background: #f1f5f9;
-        transition: all 0.3s ease;
-    }
-
-    .event-type-card.selected .event-type-icon {
-        background: rgba(255, 255, 255, 0.2);
-        color: white;
-    }
-
-    .event-type-card:not(.selected) .event-type-icon.am {
-        background: #fff7ed;
-        color: #f97316;
-    }
-
-    .event-type-card:not(.selected) .event-type-icon.pm {
-        background: #eff6ff;
-        color: #3b82f6;
-    }
-
-    .event-type-card:not(.selected) .event-type-icon.whole {
-        background: #f0fdf4;
-        color: #22c55e;
-    }
-
-    /* Period Selector */
-    .period-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-        margin-top: 1rem;
-    }
-
-    .period-option {
-        position: relative;
-        border: 2px solid #e2e8f0;
-        border-radius: var(--radius-md);
-        padding: 1.5rem;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        text-align: center;
-        background: white;
-    }
-
-    .period-option:hover {
-        border-color: #cbd5e0;
-    }
-
-    .period-option.active {
-        border-color: #667eea;
-        background: #eef2ff;
-    }
-
-    .period-option input {
-        position: absolute;
-        opacity: 0;
-    }
-
-    .period-icon {
-        width: 56px;
-        height: 56px;
-        border-radius: var(--radius-md);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin: 0 auto 1rem;
-        font-size: 1.75rem;
-        transition: all 0.3s ease;
-    }
-
-    .period-option.am .period-icon {
-        background: #fff7ed;
-        color: #f97316;
-    }
-
-    .period-option.pm .period-icon {
-        background: #eff6ff;
-        color: #3b82f6;
-    }
-
-    .period-option.active .period-icon {
-        background: #667eea;
-        color: white;
-    }
-
-    .period-title {
-        font-weight: 700;
-        font-size: 1rem;
-        margin-bottom: 0.25rem;
-    }
-
-    .period-time {
-        font-size: 0.875rem;
-        color: #64748b;
-    }
-
-    .period-option.active .period-time {
-        color: #667eea;
-    }
-
-    /* Attendance Section States */
-    .attendance-section {
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        opacity: 1;
-        transform: scale(1);
-    }
-
-    .attendance-section.disabled {
-        opacity: 0.4;
-        transform: scale(0.98);
-        pointer-events: none;
-        filter: grayscale(0.8);
-    }
-
-    .attendance-section.disabled::after {
-        content: 'Not Required for This Event Type';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: #1e293b;
-        color: white;
-        padding: 0.75rem 1.5rem;
-        border-radius: 30px;
-        font-size: 0.875rem;
-        font-weight: 600;
-        white-space: nowrap;
-        z-index: 10;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-    }
-
     .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-        padding: 0.375rem 0.875rem;
+        padding: 4px 12px;
         border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        font-size: 12px;
+        font-weight: 600;
     }
 
     .status-badge.active {
-        background: #dcfce7;
-        color: #166534;
+        background: #d4edda;
+        color: #155724;
     }
 
     .status-badge.inactive {
-        background: #f1f5f9;
-        color: #64748b;
+        background: #f8d7da;
+        color: #721c24;
     }
 
-    /* Time Input Grid */
     .time-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 1rem;
+        gap: 20px;
     }
 
-    .time-input-wrapper {
-        background: #f8fafc;
-        border-radius: var(--radius-sm);
-        padding: 1rem;
-        border: 1px solid #e2e8f0;
+    .period-grid {
+        display: flex;
+        gap: 15px;
+        margin-top: 10px;
     }
 
-    .time-input-wrapper:focus-within {
-        border-color: #667eea;
-        background: white;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    .period-option {
+        flex: 1;
+        cursor: pointer;
+        transition: var(--transition);
     }
 
-    /* Buttons */
-    .btn-create {
-        background: var(--primary-gradient);
-        border: none;
-        color: white;
-        padding: 1rem 2rem;
-        font-size: 1rem;
+    .period-option .period-icon {
+        font-size: 30px;
+        margin-bottom: 10px;
+    }
+
+    .period-option .period-title {
         font-weight: 600;
-        border-radius: var(--radius-md);
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-        transition: all 0.3s ease;
+    }
+
+    .period-option .period-time {
+        font-size: 12px;
+        color: var(--gray);
+    }
+
+    .period-option.active .period-icon,
+    .period-option.active .period-title,
+    .period-option.active .period-time {
+        color: var(--primary);
+    }
+
+    .period-option input {
+        display: none;
+    }
+
+    .attendance-section.disabled {
+        opacity: 0.6;
+        background: #f8f9fa;
+        pointer-events: none;
+    }
+
+    .btn-create {
+        background: var(--primary);
+        color: white;
+        border: none;
+        padding: 12px;
+        border-radius: 10px;
+        font-weight: 600;
+        transition: var(--transition);
     }
 
     .btn-create:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
+        background: var(--primary-dark);
         color: white;
     }
 
     .btn-cancel {
-        border: 2px solid #e2e8f0;
-        color: #64748b;
-        padding: 1rem 2rem;
+        background: #f1f3f5;
+        color: var(--dark);
+        border: none;
+        padding: 12px 20px;
+        border-radius: 10px;
         font-weight: 600;
-        border-radius: var(--radius-md);
-        transition: all 0.3s ease;
+        transition: var(--transition);
     }
 
     .btn-cancel:hover {
-        border-color: #cbd5e0;
-        background: #f8fafc;
-        color: #475569;
+        background: #e9ecef;
     }
 
-    /* Alert */
-    .custom-alert {
-        border-radius: var(--radius-md);
-        border: none;
-        padding: 1rem 1.5rem;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-
-    .custom-alert.alert-success {
-        background: #dcfce7;
-        color: #166534;
-    }
-
-    .custom-alert.alert-danger {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    /* Animations */
-    @keyframes slideIn {
+    @keyframes fadeInUp {
         from {
             opacity: 0;
             transform: translateY(20px);
@@ -591,7 +504,7 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
     }
 
     .animate-in {
-        animation: slideIn 0.5s ease forwards;
+        animation: fadeInUp 0.5s ease forwards;
     }
 
     .delay-1 {
@@ -605,29 +518,12 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
     .delay-3 {
         animation-delay: 0.3s;
     }
-
-    /* Responsive */
-    @media (max-width: 768px) {
-        .time-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .period-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .page-title {
-            font-size: 1.25rem;
-        }
-    }
     </style>
 </head>
 
 <body>
 
     <div class="main-contents">
-
-
         <div class="container mb-5">
             <div class="row justify-content-center">
                 <div class="col-lg-9">
@@ -640,28 +536,31 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                                 </div>
                                 <div>
                                     <h5 class="mb-0 fw-bold">Event Configuration</h5>
-                                    <small class="text-muted">Configure attendance schedules and fine policies</small>
+                                    <small class="text-white-50">Configure attendance schedules and fine
+                                        policies</small>
                                 </div>
                             </div>
                             <div class="text-end">
-                                <small class="text-muted d-block">Created by</small>
-                                <span class="fw-semibold"><?php echo htmlspecialchars($officer_name); ?></span>
+                                <small class="text-white-50 d-block">Created by</small>
+                                <span
+                                    class="fw-semibold"><?php echo htmlspecialchars($_SESSION['officer_name'] ?? 'Officer'); ?></span>
                             </div>
                         </div>
 
                         <div class="card-body p-4">
-                            <?php if($msg != ""): ?>
+                            <?php if ($msg !== ''): ?>
                             <div class="custom-alert alert-<?php echo $msg_type; ?> mb-4 animate-in">
                                 <i
-                                    class="bi bi-<?php echo $msg_type == 'success' ? 'check-circle-fill' : 'exclamation-triangle-fill'; ?> fs-4"></i>
+                                    class="bi bi-<?php echo $msg_type === 'success' ? 'check-circle-fill' : 'exclamation-triangle-fill'; ?> fs-4"></i>
                                 <div>
-                                    <strong><?php echo $msg_type == 'success' ? 'Success!' : 'Error!'; ?></strong>
-                                    <span class="d-block small"><?php echo $msg; ?></span>
+                                    <strong><?php echo $msg_type === 'success' ? 'Success!' : 'Error!'; ?></strong>
+                                    <span class="d-block small"><?php echo htmlspecialchars($msg); ?></span>
                                 </div>
                             </div>
                             <?php endif; ?>
 
                             <form method="POST" id="eventForm" novalidate>
+                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
 
                                 <!-- Event Details Section -->
                                 <div class="form-section animate-in delay-1">
@@ -676,7 +575,7 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                                         <label class="form-label">Event Name <span class="text-danger">*</span></label>
                                         <input type="text" name="event_name" class="form-control form-control-lg"
                                             placeholder="e.g., Annual Sports Day 2024" required
-                                            value="<?php echo isset($_POST['event_name']) ? htmlspecialchars($_POST['event_name']) : ''; ?>">
+                                            value="<?php echo htmlspecialchars($defaults['event_name']); ?>">
                                     </div>
 
                                     <div class="row">
@@ -684,68 +583,59 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                                             <label class="form-label">Event Date <span
                                                     class="text-danger">*</span></label>
                                             <input type="date" name="event_date" class="form-control" required
-                                                value="<?php echo isset($_POST['event_date']) ? $_POST['event_date'] : ''; ?>">
+                                                value="<?php echo htmlspecialchars($defaults['event_date']); ?>">
                                         </div>
                                         <div class="col-md-6 mb-3">
                                             <label class="form-label">Event Type <span
                                                     class="text-danger">*</span></label>
-                                            <select name="event_type" id="eventType" class="form-select" required
-                                                onchange="handleEventTypeChange()">
+                                            <select name="event_type" id="eventType" class="form-select" required>
                                                 <option value="whole_day"
-                                                    <?php echo (isset($_POST['event_type']) && $_POST['event_type'] == 'whole_day') ? 'selected' : ''; ?>>
+                                                    <?php echo $defaults['event_type'] === 'whole_day' ? 'selected' : ''; ?>>
                                                     Whole Day</option>
                                                 <option value="half_day"
-                                                    <?php echo (isset($_POST['event_type']) && $_POST['event_type'] == 'half_day') ? 'selected' : ''; ?>>
+                                                    <?php echo $defaults['event_type'] === 'half_day' ? 'selected' : ''; ?>>
                                                     Half Day</option>
                                             </select>
                                         </div>
                                     </div>
 
-                                    <!-- NEW: Location Field -->
+                                    <!-- Location Field -->
                                     <div class="mb-3">
                                         <label class="form-label">Location</label>
                                         <div class="input-group">
                                             <span class="input-group-text"><i class="bi bi-geo-alt"></i></span>
                                             <input type="text" name="location" class="form-control"
                                                 placeholder="e.g., Main Auditorium, Building A"
-                                                value="<?php echo isset($_POST['location']) ? htmlspecialchars($_POST['location']) : ''; ?>">
+                                                value="<?php echo htmlspecialchars($defaults['location']); ?>">
                                         </div>
                                     </div>
 
-                                    <!-- NEW: Description Field -->
+                                    <!-- Description Field -->
                                     <div class="mb-3">
                                         <label class="form-label">Description</label>
                                         <textarea name="description" class="form-control" rows="3"
-                                            placeholder="Enter event description, agenda, or additional notes..."><?php echo isset($_POST['description']) ? htmlspecialchars($_POST['description']) : ''; ?></textarea>
+                                            placeholder="Enter event description, agenda, or additional notes..."><?php echo htmlspecialchars($defaults['description']); ?></textarea>
                                     </div>
 
                                     <!-- Half Day Period Selection -->
-                                    <div id="periodContainer" class="mt-3" style="display: none;">
+                                    <div id="periodContainer" class="mt-3"
+                                        style="<?php echo $defaults['event_type'] === 'half_day' ? 'display: block;' : 'display: none;'; ?>">
                                         <label class="form-label">Select Period <span
                                                 class="text-danger">*</span></label>
                                         <div class="period-grid">
                                             <label
-                                                class="period-option am <?php echo (isset($_POST['half_day_period']) && $_POST['half_day_period'] == 'am') ? 'active' : ''; ?>"
-                                                onclick="selectPeriod('am')">
-                                                <input type="radio" name="half_day_period" value="am" id="period-am"
-                                                    <?php echo (isset($_POST['half_day_period']) && $_POST['half_day_period'] == 'am') ? 'checked' : ''; ?>
-                                                    onchange="updateSections()">
-                                                <div class="period-icon">
-                                                    <i class="bi bi-sunrise"></i>
-                                                </div>
+                                                class="period-option am <?php echo $defaults['half_day_period'] === 'am' ? 'active' : ''; ?>">
+                                                <input type="radio" name="half_day_period" value="am"
+                                                    <?php echo $defaults['half_day_period'] === 'am' ? 'checked' : ''; ?>>
+                                                <div class="period-icon"><i class="bi bi-sunrise"></i></div>
                                                 <div class="period-title">Morning Session</div>
                                                 <div class="period-time">6:00 AM - 12:00 PM</div>
                                             </label>
-
                                             <label
-                                                class="period-option pm <?php echo (isset($_POST['half_day_period']) && $_POST['half_day_period'] == 'pm') ? 'active' : ''; ?>"
-                                                onclick="selectPeriod('pm')">
-                                                <input type="radio" name="half_day_period" value="pm" id="period-pm"
-                                                    <?php echo (isset($_POST['half_day_period']) && $_POST['half_day_period'] == 'pm') ? 'checked' : ''; ?>
-                                                    onchange="updateSections()">
-                                                <div class="period-icon">
-                                                    <i class="bi bi-sunset"></i>
-                                                </div>
+                                                class="period-option pm <?php echo $defaults['half_day_period'] === 'pm' ? 'active' : ''; ?>">
+                                                <input type="radio" name="half_day_period" value="pm"
+                                                    <?php echo $defaults['half_day_period'] === 'pm' ? 'checked' : ''; ?>>
+                                                <div class="period-icon"><i class="bi bi-sunset"></i></div>
                                                 <div class="period-title">Afternoon Session</div>
                                                 <div class="period-time">12:00 PM - 6:00 PM</div>
                                             </label>
@@ -770,14 +660,14 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                                         <div class="time-input-wrapper">
                                             <label class="form-label small text-muted mb-2">Login Start</label>
                                             <input type="time" name="am_login_start" class="form-control am-input"
-                                                required
-                                                value="<?php echo isset($_POST['am_login_start']) ? $_POST['am_login_start'] : '08:00'; ?>">
+                                                value="<?php echo htmlspecialchars($defaults['am_login_start']); ?>"
+                                                required>
                                         </div>
                                         <div class="time-input-wrapper">
                                             <label class="form-label small text-muted mb-2">Login End</label>
                                             <input type="time" name="am_login_end" class="form-control am-input"
-                                                required
-                                                value="<?php echo isset($_POST['am_login_end']) ? $_POST['am_login_end'] : '09:00'; ?>">
+                                                value="<?php echo htmlspecialchars($defaults['am_login_end']); ?>"
+                                                required>
                                         </div>
                                     </div>
 
@@ -785,14 +675,14 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                                         <div class="time-input-wrapper">
                                             <label class="form-label small text-muted mb-2">Logout Start</label>
                                             <input type="time" name="am_logout_start" class="form-control am-input"
-                                                required
-                                                value="<?php echo isset($_POST['am_logout_start']) ? $_POST['am_logout_start'] : '12:00'; ?>">
+                                                value="<?php echo htmlspecialchars($defaults['am_logout_start']); ?>"
+                                                required>
                                         </div>
                                         <div class="time-input-wrapper">
                                             <label class="form-label small text-muted mb-2">Logout End</label>
                                             <input type="time" name="am_logout_end" class="form-control am-input"
-                                                required
-                                                value="<?php echo isset($_POST['am_logout_end']) ? $_POST['am_logout_end'] : '13:00'; ?>">
+                                                value="<?php echo htmlspecialchars($defaults['am_logout_end']); ?>"
+                                                required>
                                         </div>
                                     </div>
 
@@ -802,8 +692,9 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                                             <div class="input-group">
                                                 <span class="input-group-text">$</span>
                                                 <input type="number" step="0.01" name="miss_am_login"
-                                                    class="form-control am-input" placeholder="0.00" required
-                                                    value="<?php echo isset($_POST['miss_am_login']) ? $_POST['miss_am_login'] : '5.00'; ?>">
+                                                    class="form-control am-input"
+                                                    value="<?php echo htmlspecialchars($defaults['miss_am_login']); ?>"
+                                                    required>
                                             </div>
                                         </div>
                                         <div class="col-md-6 mb-3">
@@ -811,8 +702,9 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                                             <div class="input-group">
                                                 <span class="input-group-text">$</span>
                                                 <input type="number" step="0.01" name="miss_am_logout"
-                                                    class="form-control am-input" placeholder="0.00" required
-                                                    value="<?php echo isset($_POST['miss_am_logout']) ? $_POST['miss_am_logout'] : '5.00'; ?>">
+                                                    class="form-control am-input"
+                                                    value="<?php echo htmlspecialchars($defaults['miss_am_logout']); ?>"
+                                                    required>
                                             </div>
                                         </div>
                                     </div>
@@ -835,12 +727,12 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                                         <div class="time-input-wrapper">
                                             <label class="form-label small text-muted mb-2">Login Start</label>
                                             <input type="time" name="pm_login_start" class="form-control pm-input"
-                                                value="<?php echo isset($_POST['pm_login_start']) ? $_POST['pm_login_start'] : '13:00'; ?>">
+                                                value="<?php echo htmlspecialchars($defaults['pm_login_start']); ?>">
                                         </div>
                                         <div class="time-input-wrapper">
                                             <label class="form-label small text-muted mb-2">Login End</label>
                                             <input type="time" name="pm_login_end" class="form-control pm-input"
-                                                value="<?php echo isset($_POST['pm_login_end']) ? $_POST['pm_login_end'] : '14:00'; ?>">
+                                                value="<?php echo htmlspecialchars($defaults['pm_login_end']); ?>">
                                         </div>
                                     </div>
 
@@ -848,12 +740,12 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                                         <div class="time-input-wrapper">
                                             <label class="form-label small text-muted mb-2">Logout Start</label>
                                             <input type="time" name="pm_logout_start" class="form-control pm-input"
-                                                value="<?php echo isset($_POST['pm_logout_start']) ? $_POST['pm_logout_start'] : '17:00'; ?>">
+                                                value="<?php echo htmlspecialchars($defaults['pm_logout_start']); ?>">
                                         </div>
                                         <div class="time-input-wrapper">
                                             <label class="form-label small text-muted mb-2">Logout End</label>
                                             <input type="time" name="pm_logout_end" class="form-control pm-input"
-                                                value="<?php echo isset($_POST['pm_logout_end']) ? $_POST['pm_logout_end'] : '18:00'; ?>">
+                                                value="<?php echo htmlspecialchars($defaults['pm_logout_end']); ?>">
                                         </div>
                                     </div>
 
@@ -863,8 +755,8 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                                             <div class="input-group">
                                                 <span class="input-group-text">$</span>
                                                 <input type="number" step="0.01" name="miss_pm_login"
-                                                    class="form-control pm-input" placeholder="0.00"
-                                                    value="<?php echo isset($_POST['miss_pm_login']) ? $_POST['miss_pm_login'] : '5.00'; ?>">
+                                                    class="form-control pm-input"
+                                                    value="<?php echo htmlspecialchars($defaults['miss_pm_login']); ?>">
                                             </div>
                                         </div>
                                         <div class="col-md-6 mb-3">
@@ -872,8 +764,8 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                                             <div class="input-group">
                                                 <span class="input-group-text">$</span>
                                                 <input type="number" step="0.01" name="miss_pm_logout"
-                                                    class="form-control pm-input" placeholder="0.00"
-                                                    value="<?php echo isset($_POST['miss_pm_logout']) ? $_POST['miss_pm_logout'] : '5.00'; ?>">
+                                                    class="form-control pm-input"
+                                                    value="<?php echo htmlspecialchars($defaults['miss_pm_logout']); ?>">
                                             </div>
                                         </div>
                                     </div>
@@ -894,101 +786,149 @@ $officer_name = isset($_SESSION['officer_name']) ? $_SESSION['officer_name'] : '
                 </div>
             </div>
         </div>
+    </div>
 
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-        <script>
-        function handleEventTypeChange() {
-            const eventType = document.getElementById('eventType').value;
-            const periodContainer = document.getElementById('periodContainer');
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // Client-side logic to toggle sections based on event type and period
+    (function() {
+        const eventTypeSelect = document.getElementById('eventType');
+        const periodContainer = document.getElementById('periodContainer');
+        const amSection = document.getElementById('amSection');
+        const pmSection = document.getElementById('pmSection');
+        const amStatus = document.getElementById('amStatus');
+        const pmStatus = document.getElementById('pmStatus');
 
-            if (eventType === 'half_day') {
-                periodContainer.style.display = 'block';
-                // Auto-select AM if nothing selected
-                if (!document.querySelector('input[name="half_day_period"]:checked')) {
-                    selectPeriod('am');
+        function toggleSections() {
+            const eventType = eventTypeSelect.value;
+            const isHalfDay = eventType === 'half_day';
+            periodContainer.style.display = isHalfDay ? 'block' : 'none';
+
+            if (isHalfDay) {
+                const selectedPeriod = document.querySelector('input[name="half_day_period"]:checked')?.value;
+                if (selectedPeriod === 'am') {
+                    setSectionActive(amSection, amStatus, true);
+                    setSectionActive(pmSection, pmStatus, false);
+                } else if (selectedPeriod === 'pm') {
+                    setSectionActive(amSection, amStatus, false);
+                    setSectionActive(pmSection, pmStatus, true);
+                } else {
+                    // No period selected yet – default both inactive
+                    setSectionActive(amSection, amStatus, false);
+                    setSectionActive(pmSection, pmStatus, false);
                 }
             } else {
-                periodContainer.style.display = 'none';
-                // Enable both sections for whole day
-                toggleSection('am', true);
-                toggleSection('pm', true);
+                // Whole day – both sections active
+                setSectionActive(amSection, amStatus, true);
+                setSectionActive(pmSection, pmStatus, true);
             }
         }
 
-        function selectPeriod(period) {
-            // Update visual selection
-            document.querySelectorAll('.period-option').forEach(opt => opt.classList.remove('active'));
-            document.querySelector('.period-option.' + period).classList.add('active');
-
-            // Update radio button
-            document.getElementById('period-' + period).checked = true;
-
-            updateSections();
-        }
-
-        function updateSections() {
-            const eventType = document.getElementById('eventType').value;
-            const selectedPeriod = document.querySelector('input[name="half_day_period"]:checked')?.value;
-
-            if (eventType === 'half_day') {
-                if (selectedPeriod === 'am') {
-                    toggleSection('am', true);
-                    toggleSection('pm', false);
-                } else if (selectedPeriod === 'pm') {
-                    toggleSection('am', false);
-                    toggleSection('pm', true);
-                }
-            }
-        }
-
-        function toggleSection(section, isActive) {
-            const sectionEl = document.getElementById(section + 'Section');
-            const inputs = document.querySelectorAll('.' + section + '-input');
-            const statusBadge = document.getElementById(section + 'Status');
-
-            if (isActive) {
-                sectionEl.classList.remove('disabled');
-                statusBadge.textContent = 'Active';
-                statusBadge.className = 'status-badge active';
+        function setSectionActive(section, statusSpan, active) {
+            if (active) {
+                section.classList.remove('disabled');
+                statusSpan.textContent = 'Active';
+                statusSpan.className = 'status-badge active';
+                // Enable all inputs with class matching section's prefix (am-input or pm-input)
+                const inputs = section.querySelectorAll('input, select, textarea');
                 inputs.forEach(input => {
                     input.disabled = false;
-                    input.setAttribute('required', 'required');
+                    if (input.hasAttribute('required') && !input.value && input.type !== 'radio') {
+                        input.setAttribute('required', 'required');
+                    }
                 });
             } else {
-                sectionEl.classList.add('disabled');
-                statusBadge.textContent = 'Inactive';
-                statusBadge.className = 'status-badge inactive';
+                section.classList.add('disabled');
+                statusSpan.textContent = 'Inactive';
+                statusSpan.className = 'status-badge inactive';
+                const inputs = section.querySelectorAll('input, select, textarea');
                 inputs.forEach(input => {
                     input.disabled = true;
                     input.removeAttribute('required');
-                    input.value = '';
                 });
             }
         }
 
-        // Form validation
-        document.getElementById('eventForm').addEventListener('submit', function(e) {
-            const eventType = document.getElementById('eventType').value;
+        // Period radio change listener
+        document.querySelectorAll('input[name="half_day_period"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                // Update active visual for period options
+                document.querySelectorAll('.period-option').forEach(opt => opt.classList.remove(
+                    'active'));
+                this.closest('.period-option').classList.add('active');
+                toggleSections();
+            });
+        });
 
-            if (eventType === 'half_day' && !document.querySelector('input[name="half_day_period"]:checked')) {
+        // Event type change listener
+        eventTypeSelect.addEventListener('change', toggleSections);
+
+        // Initial setup
+        toggleSections();
+
+        // Additional validation: ensure time ranges are logical before submit
+        const form = document.getElementById('eventForm');
+        form.addEventListener('submit', function(e) {
+            const eventType = eventTypeSelect.value;
+            const isHalfDay = eventType === 'half_day';
+            if (isHalfDay && !document.querySelector('input[name="half_day_period"]:checked')) {
                 e.preventDefault();
                 alert('Please select AM or PM period for half-day event.');
                 return false;
             }
-        });
 
-        // Initialize on load
-        document.addEventListener('DOMContentLoaded', function() {
-            handleEventTypeChange();
+            // Validate time ranges if the section is active
+            const sections = [{
+                    section: amSection,
+                    prefix: 'am',
+                    name: 'AM'
+                },
+                {
+                    section: pmSection,
+                    prefix: 'pm',
+                    name: 'PM'
+                }
+            ];
+            for (const s of sections) {
+                if (!s.section.classList.contains('disabled')) {
+                    const startLogin = s.section.querySelector(`input[name="${s.prefix}_login_start"]`);
+                    const endLogin = s.section.querySelector(`input[name="${s.prefix}_login_end"]`);
+                    const startLogout = s.section.querySelector(`input[name="${s.prefix}_logout_start"]`);
+                    const endLogout = s.section.querySelector(`input[name="${s.prefix}_logout_end"]`);
 
-            // Set min date to today for date picker
-            const dateInput = document.querySelector('input[name="event_date"]');
-            if (dateInput) {
-                const today = new Date().toISOString().split('T')[0];
-                dateInput.setAttribute('min', today);
+                    if (startLogin && endLogin && startLogin.value && endLogin.value && startLogin.value >=
+                        endLogin.value) {
+                        e.preventDefault();
+                        alert(`${s.name} Login start must be before end.`);
+                        return false;
+                    }
+                    if (startLogout && endLogout && startLogout.value && endLogout.value && startLogout
+                        .value >= endLogout.value) {
+                        e.preventDefault();
+                        alert(`${s.name} Logout start must be before end.`);
+                        return false;
+                    }
+                }
+            }
+
+            // Ensure event date is not in the past
+            const eventDate = form.querySelector('input[name="event_date"]').value;
+            const today = new Date().toISOString().split('T')[0];
+            if (eventDate && eventDate < today) {
+                e.preventDefault();
+                alert('Event date cannot be in the past.');
+                return false;
             }
         });
-        </script>
+
+        // Set min date for event date
+        const dateInput = document.querySelector('input[name="event_date"]');
+        if (dateInput) {
+            const today = new Date().toISOString().split('T')[0];
+            dateInput.setAttribute('min', today);
+        }
+    })();
+    </script>
 </body>
 
 </html>

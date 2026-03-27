@@ -399,7 +399,7 @@ body {
             </li>
             <li class="beams-nav-item">
                 <a href="../officerpage/manage_fines.php" class="beams-nav-link">
-                    <i class="fas fa-cash-stack"></i>
+                    <i class="fas fa-money-bill-wave"></i>
                     <span>Manage Fines</span>
                 </a>
             </li>

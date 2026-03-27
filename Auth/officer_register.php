@@ -33,7 +33,7 @@ if ($result->num_rows > 0) {
 }
 
 // Hash password
-$hashed_password = password_hash($password, PASSWORD_DEFAULT);
+$hashed_password = password_hash($password, PASSWORD_BCRYPT);
 
 // Insert new officer
 $sql = $conn->prepare("INSERT INTO officers (officer_id, full_name, password, position, created_at) VALUES (?, ?, ?, ?, NOW())");

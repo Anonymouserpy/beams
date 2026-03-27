@@ -37,7 +37,7 @@ if($result->num_rows > 0){
 }
 
 /* HASH PASSWORD */
-$hashed_password = password_hash($password, PASSWORD_DEFAULT);
+$hashed_password = password_hash($password, PASSWORD_BCRYPT);
 
 /* INSERT STUDENT */
 $sql = $conn->prepare("INSERT INTO students
