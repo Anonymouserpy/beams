@@ -602,6 +602,176 @@ class AttendanceUpdateServer implements MessageComponentInterface
                 }
                 break;
 
+            // ---------- STUDENTS CRUD ----------
+            case 'CREATE_STUDENT':
+                // Expect: student_id, full_name, password, year_level, section (optional)
+                if (isset($data['payload']['student_id'], $data['payload']['full_name'], $data['payload']['password'], $data['payload']['year_level'])) {
+                    $studentId  = $data['payload']['student_id'];
+                    $fullName   = $data['payload']['full_name'];
+                    $plainPwd   = $data['payload']['password'];
+                    $yearLevel  = (int)$data['payload']['year_level'];
+                    $section    = $data['payload']['section'] ?? null; // optional
+
+                    // Validate year_level is integer (already cast)
+                    if ($yearLevel <= 0) {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => 'Invalid year_level']);
+                        break;
+                    }
+
+                    // Hash password
+                    $hashedPwd = password_hash($plainPwd, PASSWORD_DEFAULT);
+
+                    if ($this->pdo) {
+                        try {
+                            // Check for duplicate student_id
+                            $stmt = $this->pdo->prepare("SELECT student_id FROM students WHERE student_id = :sid");
+                            $stmt->execute([':sid' => $studentId]);
+                            if ($stmt->fetch()) {
+                                $this->sendToClient($from, ['type' => 'error', 'message' => 'Student ID already exists']);
+                                break;
+                            }
+
+                            $stmt = $this->pdo->prepare("
+                                INSERT INTO students (student_id, full_name, password, year_level, section, created_at)
+                                VALUES (:sid, :name, :pwd, :year, :sec, NOW())
+                            ");
+                            $stmt->execute([
+                                ':sid'  => $studentId,
+                                ':name' => $fullName,
+                                ':pwd'  => $hashedPwd,
+                                ':year' => $yearLevel,
+                                ':sec'  => $section
+                            ]);
+
+                            $response = [
+                                'type'    => 'STUDENT_CREATED',
+                                'payload' => [
+                                    'student_id'  => $studentId,
+                                    'full_name'   => $fullName,
+                                    'year_level'  => $yearLevel,
+                                    'section'     => $section,
+                                    // created_at is added by database, could be retrieved if needed
+                                ]
+                            ];
+                            $this->broadcastToAll(json_encode($response));
+                            $this->logMessage($response);
+                            echo "Student created: $studentId\n";
+                        } catch (PDOException $e) {
+                            $this->sendToClient($from, ['type' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
+                        }
+                    } else {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => 'No database connection']);
+                    }
+                } else {
+                    $this->sendToClient($from, ['type' => 'error', 'message' => 'Missing required fields for student (student_id, full_name, password, year_level)']);
+                }
+                break;
+
+            case 'READ_STUDENT':
+                $filters = [];
+                $params  = [];
+                if (isset($data['payload']['student_id'])) {
+                    $filters[] = "student_id = :sid";
+                    $params[':sid'] = $data['payload']['student_id'];
+                }
+                if (isset($data['payload']['year_level'])) {
+                    $filters[] = "year_level = :year";
+                    $params[':year'] = $data['payload']['year_level'];
+                }
+                if (isset($data['payload']['section'])) {
+                    $filters[] = "section = :sec";
+                    $params[':sec'] = $data['payload']['section'];
+                }
+
+                // Exclude password from results
+                $sql = "SELECT student_id, full_name, year_level, section, created_at FROM students";
+                if (!empty($filters)) {
+                    $sql .= " WHERE " . implode(' AND ', $filters);
+                }
+
+                if ($this->pdo) {
+                    try {
+                        $stmt = $this->pdo->prepare($sql);
+                        $stmt->execute($params);
+                        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        $this->sendToClient($from, ['type' => 'STUDENT_READ', 'payload' => $rows]);
+                    } catch (PDOException $e) {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
+                    }
+                } else {
+                    $this->sendToClient($from, ['type' => 'error', 'message' => 'No database connection']);
+                }
+                break;
+
+            case 'UPDATE_STUDENT':
+                if (isset($data['payload']['student_id'], $data['payload']['field'], $data['payload']['value'])) {
+                    $studentId = $data['payload']['student_id'];
+                    $field     = $data['payload']['field'];
+                    $value     = $data['payload']['value'];
+
+                    $allowedFields = ['full_name', 'year_level', 'section', 'password'];
+                    if (!in_array($field, $allowedFields)) {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => "Invalid field: $field"]);
+                        break;
+                    }
+
+                    // Handle password hashing
+                    if ($field === 'password') {
+                        $value = password_hash($value, PASSWORD_DEFAULT);
+                    }
+
+                    if ($this->pdo) {
+                        try {
+                            $stmt = $this->pdo->prepare("UPDATE students SET $field = :value WHERE student_id = :sid");
+                            $stmt->execute([':value' => $value, ':sid' => $studentId]);
+
+                            $response = [
+                                'type'    => 'STUDENT_UPDATED',
+                                'payload' => [
+                                    'student_id' => $studentId,
+                                    'field'      => $field,
+                                    'value'      => ($field === 'password') ? '***' : $value // mask password in log
+                                ]
+                            ];
+                            $this->broadcastToAll(json_encode($response));
+                            $this->logMessage($response);
+                            echo "Student $studentId updated: $field = " . (($field === 'password') ? '****' : $value) . "\n";
+                        } catch (PDOException $e) {
+                            $this->sendToClient($from, ['type' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
+                        }
+                    } else {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => 'No database connection']);
+                    }
+                } else {
+                    $this->sendToClient($from, ['type' => 'error', 'message' => 'Missing student_id, field, or value']);
+                }
+                break;
+
+            case 'DELETE_STUDENT':
+                if (isset($data['payload']['student_id'])) {
+                    $studentId = $data['payload']['student_id'];
+
+                    if ($this->pdo) {
+                        try {
+                            // Optionally check if student exists before delete (not required)
+                            $stmt = $this->pdo->prepare("DELETE FROM students WHERE student_id = ?");
+                            $stmt->execute([$studentId]);
+
+                            $response = ['type' => 'STUDENT_DELETED', 'payload' => ['student_id' => $studentId]];
+                            $this->broadcastToAll(json_encode($response));
+                            $this->logMessage($response);
+                            echo "Student $studentId deleted.\n";
+                        } catch (PDOException $e) {
+                            $this->sendToClient($from, ['type' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
+                        }
+                    } else {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => 'No database connection']);
+                    }
+                } else {
+                    $this->sendToClient($from, ['type' => 'error', 'message' => 'Missing student_id']);
+                }
+                break;
+
             case 'ping':
                 $this->sendToClient($from, ['type' => 'pong']);
                 break;

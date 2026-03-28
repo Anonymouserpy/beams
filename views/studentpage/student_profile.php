@@ -570,11 +570,8 @@ function broadcastWebSocket($data) {
     // --- State ---
     let studentData = null;
 
-    // DOM elements
     const container = document.getElementById('profileContainer');
     const toastContainer = document.getElementById('toastContainer');
-
-    // Modal elements
     const editModal = new bootstrap.Modal(document.getElementById('editProfileModal'));
     const editSection = document.getElementById('editSection');
     const editPassword = document.getElementById('editPassword');
@@ -602,7 +599,7 @@ function broadcastWebSocket($data) {
         saveBtn.addEventListener('click', saveProfile);
     });
 
-    // --- Fetch profile ---
+    // --- Fetch profile (unchanged) ---
     async function fetchProfile() {
         try {
             const response = await fetch('?action=get_profile');
@@ -743,7 +740,7 @@ function broadcastWebSocket($data) {
         return div.innerHTML;
     }
 
-    // --- WebSocket ---
+    // --- WebSocket with subscription and dual message handling ---
     function updateWSStatus(status, text) {
         const el = document.getElementById('wsStatus');
         if (el) {
@@ -754,10 +751,8 @@ function broadcastWebSocket($data) {
 
     function initWebSocket() {
         if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-
         const wsUrl = `${WS_CONFIG.protocol}//${WS_CONFIG.host}:${WS_CONFIG.port}`;
         updateWSStatus('connecting', 'Connecting...');
-
         try {
             ws = new WebSocket(wsUrl);
             ws.onopen = () => {
@@ -771,7 +766,8 @@ function broadcastWebSocket($data) {
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 if (data.student_id && data.student_id !== studentId) return;
-                if (data.type === 'student_updated') {
+                // Handle student updates (both uppercase and lowercase)
+                if (data.type === 'STUDENT_UPDATED' || data.type === 'student_updated') {
                     fetchProfile();
                 }
             };
@@ -784,11 +780,11 @@ function broadcastWebSocket($data) {
                 }
             };
             ws.onerror = (err) => {
-                console.error('WebSocket error:', err);
+                console.error(err);
                 updateWSStatus('disconnected', 'Error');
             };
         } catch (e) {
-            console.error('WebSocket init error:', e);
+            console.error(e);
             updateWSStatus('disconnected', 'Failed');
         }
     }
