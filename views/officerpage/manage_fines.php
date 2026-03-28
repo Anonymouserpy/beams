@@ -288,17 +288,18 @@ if ($ev_res) {
     }
 
     .main-contents {
-        margin-left: var(--sidebar-width, 250px);
-        padding: 2rem;
-        transition: margin-left 0.3s ease;
+        margin-left: 220px;
+        padding: 30px;
+        transition: var(--transition);
     }
 
-    @media (max-width: 768px) {
+    @media (max-width: 992px) {
         .main-contents {
             margin-left: 0;
-            padding: 1rem;
+            padding: 20px;
         }
     }
+
 
     /* Stats cards */
     .stats-card {
