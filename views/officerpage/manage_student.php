@@ -1556,13 +1556,7 @@ require "../sidebar/officer_sidebar.php";
                                         <div class="year-label">4th Year</div>
                                     </div>
                                 </label>
-                                <label class="year-option">
-                                    <input type="radio" name="year_level" value="5">
-                                    <div class="year-card">
-                                        <div class="year-number">5</div>
-                                        <div class="year-label">5th Year</div>
-                                    </div>
-                                </label>
+
                             </div>
                         </div>
 
