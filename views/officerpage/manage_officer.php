@@ -1,33 +1,21 @@
 <?php
 session_start();
 
-require __DIR__ . '/../../Connection/connection.php';
-include __DIR__ . '/../sidebar/officer_sidebar.php';
-
-// Admin only
-if (!isset($_SESSION['officer_id']) || $_SESSION['position'] !== 'Admin') {
-    header('Location: officer_dashboard.php');
-    exit();
-}
-
-// WebSocket helper
-function notifyWebSocket($data)
-{
-    $socket = @fsockopen('127.0.0.1', 8081, $errno, $errstr, 0.5);
-    if ($socket) {
-        fwrite($socket, json_encode($data));
-        fclose($socket);
-    } else {
-        error_log("WebSocket notification failed: $errstr ($errno)");
-    }
-}
-
-// Handle AJAX requests
+// ========== AJAX HANDLERS (run first, before any output) ==========
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // Only include database connection for AJAX
+    require __DIR__ . '/../../Connection/connection.php';
+
+    // Clean output buffers and disable error display to ensure clean JSON
+    error_reporting(0);
+    ini_set('display_errors', 0);
+    ob_clean();
     header('Content-Type: application/json');
+
     $response = ['status' => 'error', 'message' => 'Invalid action'];
 
-    if ($_SESSION['position'] !== 'Admin') {
+    // Verify admin session
+    if (!isset($_SESSION['officer_id']) || $_SESSION['position'] !== 'Admin') {
         echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
         exit();
     }
@@ -35,65 +23,115 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
     $officer_id = $_POST['officer_id'] ?? '';
 
-    if ($action === 'edit') {
-        $full_name = trim($_POST['full_name'] ?? '');
-        $position = $_POST['position'] ?? '';
-        if (empty($full_name) || !in_array($position, ['Admin', 'Officer'])) {
-            $response['message'] = 'Invalid input.';
-        } else {
-            $stmt = $conn->prepare("UPDATE officers SET full_name = ?, position = ? WHERE officer_id = ?");
-            $stmt->bind_param("sss", $full_name, $position, $officer_id);
-            if ($stmt->execute()) {
-                notifyWebSocket([
-                    'type' => 'OFFICER_UPDATED',
-                    'payload' => [
-                        'officer_id' => $officer_id,
-                        'field' => 'full_name_position',
-                        'value' => ['full_name' => $full_name, 'position' => $position]
-                    ]
-                ]);
-                $response = ['status' => 'success', 'message' => 'Officer updated successfully.'];
-            } else {
-                $response['message'] = 'Database error.';
+    if (empty($officer_id)) {
+        echo json_encode(['status' => 'error', 'message' => 'Missing officer ID']);
+        exit();
+    }
+
+    // WebSocket helper
+    function notifyWebSocket($data) {
+        try {
+            $socket = @fsockopen('127.0.0.1', 8081, $errno, $errstr, 0.5);
+            if ($socket) {
+                fwrite($socket, json_encode($data));
+                fclose($socket);
             }
-            $stmt->close();
-        }
-    } elseif ($action === 'reset_password') {
-        $newPassword = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 8);
-        $hashed = password_hash($newPassword, PASSWORD_DEFAULT);
-        $stmt = $conn->prepare("UPDATE officers SET password = ? WHERE officer_id = ?");
-        $stmt->bind_param("ss", $hashed, $officer_id);
-        if ($stmt->execute()) {
-            notifyWebSocket([
-                'type' => 'OFFICER_UPDATED',
-                'payload' => ['officer_id' => $officer_id, 'field' => 'password', 'value' => '[RESET]']
-            ]);
-            $response = ['status' => 'success', 'message' => 'Password reset successfully.', 'new_password' => $newPassword];
-        } else {
-            $response['message'] = 'Database error.';
-        }
-        $stmt->close();
-    } elseif ($action === 'delete') {
-        if ($officer_id === $_SESSION['officer_id']) {
-            $response['message'] = 'You cannot delete your own account.';
-        } else {
-            $stmt = $conn->prepare("DELETE FROM officers WHERE officer_id = ?");
-            $stmt->bind_param("s", $officer_id);
-            if ($stmt->execute()) {
-                notifyWebSocket(['type' => 'OFFICER_DELETED', 'payload' => ['officer_id' => $officer_id]]);
-                $response = ['status' => 'success', 'message' => 'Officer deleted successfully.'];
-            } else {
-                $response['message'] = 'Database error.';
-            }
-            $stmt->close();
+        } catch (Exception $e) {
+            error_log("WebSocket notification error: " . $e->getMessage());
         }
     }
 
+    try {
+        if ($action === 'edit') {
+            $full_name = trim($_POST['full_name'] ?? '');
+            $position = $_POST['position'] ?? '';
+            if (empty($full_name) || !in_array($position, ['Admin', 'Officer'])) {
+                $response['message'] = 'Invalid input.';
+            } else {
+                $stmt = $conn->prepare("UPDATE officers SET full_name = ?, position = ? WHERE officer_id = ?");
+                $stmt->bind_param("sss", $full_name, $position, $officer_id);
+                if ($stmt->execute()) {
+                    notifyWebSocket([
+                        'type' => 'OFFICER_UPDATED',
+                        'payload' => [
+                            'officer_id' => $officer_id,
+                            'field' => 'full_name_position',
+                            'value' => ['full_name' => $full_name, 'position' => $position]
+                        ]
+                    ]);
+                    $response = ['status' => 'success', 'message' => 'Officer updated successfully.'];
+                } else {
+                    $response['message'] = 'Database error: ' . $stmt->error;
+                }
+                $stmt->close();
+            }
+        } elseif ($action === 'reset_password') {
+            $newPassword = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 8);
+            $hashed = password_hash($newPassword, PASSWORD_DEFAULT);
+            $stmt = $conn->prepare("UPDATE officers SET password = ? WHERE officer_id = ?");
+            $stmt->bind_param("ss", $hashed, $officer_id);
+            if ($stmt->execute()) {
+                notifyWebSocket([
+                    'type' => 'OFFICER_UPDATED',
+                    'payload' => ['officer_id' => $officer_id, 'field' => 'password', 'value' => '[RESET]']
+                ]);
+                $response = ['status' => 'success', 'message' => 'Password reset successfully.', 'new_password' => $newPassword];
+            } else {
+                $response['message'] = 'Database error: ' . $stmt->error;
+            }
+            $stmt->close();
+        } elseif ($action === 'delete') {
+            if ($officer_id === $_SESSION['officer_id']) {
+                $response['message'] = 'You cannot delete your own account.';
+            } else {
+                $stmt = $conn->prepare("DELETE FROM officers WHERE officer_id = ?");
+                $stmt->bind_param("s", $officer_id);
+                if ($stmt->execute()) {
+                    notifyWebSocket(['type' => 'OFFICER_DELETED', 'payload' => ['officer_id' => $officer_id]]);
+                    $response = ['status' => 'success', 'message' => 'Officer deleted successfully.'];
+                } else {
+                    $response['message'] = 'Database error: ' . $stmt->error;
+                }
+                $stmt->close();
+            }
+        } else {
+            $response['message'] = 'Unknown action.';
+        }
+    } catch (Exception $e) {
+        $response['message'] = 'Server error: ' . $e->getMessage();
+    }
+
     echo json_encode($response);
+    ob_end_flush();
     exit();
 }
 
-// Fetch all officers
+// Handle GET AJAX for stats
+if (isset($_GET['action']) && $_GET['action'] === 'get_stats') {
+    require __DIR__ . '/../../Connection/connection.php';
+    header('Content-Type: application/json');
+    $total = $conn->query("SELECT COUNT(*) FROM officers")->fetch_row()[0];
+    $admin = $conn->query("SELECT COUNT(*) FROM officers WHERE position='Admin'")->fetch_row()[0];
+    echo json_encode([
+        'success' => true,
+        'totalOfficers' => $total,
+        'adminCount' => $admin,
+        'officerCount' => $total - $admin
+    ]);
+    exit();
+}
+
+// ========== NORMAL PAGE LOAD ==========
+require __DIR__ . '/../../Connection/connection.php';
+include __DIR__ . '/../sidebar/officer_sidebar.php';
+
+// Admin only (for page view)
+if (!isset($_SESSION['officer_id']) || $_SESSION['position'] !== 'Admin') {
+    header('Location: officer_dashboard.php');
+    exit();
+}
+
+// Fetch all officers for initial load
 $result = $conn->query("SELECT officer_id, full_name, position, created_at FROM officers ORDER BY created_at DESC");
 $officers = $result->fetch_all(MYSQLI_ASSOC);
 $totalOfficers = count($officers);
@@ -107,10 +145,10 @@ $officerCount = $totalOfficers - $adminCount;
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage Officers | BEAMS</title>
-    <!-- Bootstrap 5 & Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
+    /* ========== ALL ORIGINAL STYLES (KEEP) ========== */
     body {
         background: linear-gradient(135deg, #f5f7fa 0%, #e9eef3 100%);
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -129,12 +167,10 @@ $officerCount = $totalOfficers - $adminCount;
         }
     }
 
-    /* Card Styles */
     .card {
         border: none;
         border-radius: 1.25rem;
         box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.05);
-        transition: all 0.2s ease;
     }
 
     .stats-card {
@@ -143,23 +179,10 @@ $officerCount = $totalOfficers - $adminCount;
         border-radius: 1rem;
         padding: 1rem;
         margin-bottom: 1.5rem;
-        transition: transform 0.2s;
-    }
-
-    .stats-card:hover {
-        transform: translateY(-3px);
-    }
-
-    .officer-card {
-        margin-bottom: 1.5rem;
-        transition: all 0.3s ease;
     }
 
     .officer-card .card {
         height: 100%;
-        background: white;
-        border-radius: 1rem;
-        overflow: hidden;
         transition: all 0.3s ease;
     }
 
@@ -176,7 +199,7 @@ $officerCount = $totalOfficers - $adminCount;
     }
 
     .officer-id {
-        font-family: 'SF Mono', monospace;
+        font-family: monospace;
         font-size: 0.85rem;
         background: #f1f5f9;
         display: inline-flex;
@@ -185,7 +208,6 @@ $officerCount = $totalOfficers - $adminCount;
         padding: 0.3rem 0.8rem;
         border-radius: 2rem;
         color: #2c3e50;
-        margin-bottom: 1rem;
     }
 
     .badge-admin {
@@ -193,7 +215,6 @@ $officerCount = $totalOfficers - $adminCount;
         color: white;
         padding: 0.4rem 1rem;
         border-radius: 2rem;
-        font-weight: 500;
     }
 
     .badge-officer {
@@ -201,18 +222,12 @@ $officerCount = $totalOfficers - $adminCount;
         color: white;
         padding: 0.4rem 1rem;
         border-radius: 2rem;
-        font-weight: 500;
     }
 
     .action-buttons .btn {
         border-radius: 2rem;
         padding: 0.3rem 0.8rem;
         font-size: 0.8rem;
-        transition: all 0.2s;
-    }
-
-    .action-buttons .btn:hover {
-        transform: translateY(-2px);
     }
 
     .search-box {
@@ -249,38 +264,67 @@ $officerCount = $totalOfficers - $adminCount;
         z-index: 1060;
     }
 
-    .empty-state {
-        text-align: center;
-        padding: 3rem;
-        color: #6c757d;
-    }
-
-    .btn-refresh {
+    /* WebSocket status */
+    .ws-status {
+        position: fixed;
+        bottom: 20px;
+        left: 250px;
         background: white;
-        border-radius: 2rem;
+        border-radius: 30px;
         padding: 0.4rem 1rem;
-        transition: all 0.2s;
+        font-size: 0.75rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        z-index: 1050;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        border: 1px solid transparent;
     }
 
-    .btn-refresh:hover {
-        background: #f8f9fa;
-        transform: rotate(180deg);
+    @media (max-width: 992px) {
+        .ws-status {
+            left: 20px;
+        }
+    }
+
+    .ws-status.connected {
+        color: #28a745;
+        border-color: #28a745;
+    }
+
+    .ws-status.disconnected {
+        color: #dc3545;
+        border-color: #dc3545;
+    }
+
+    .ws-status.connecting {
+        color: #ffc107;
+        border-color: #ffc107;
+    }
+
+    .ws-status i {
+        font-size: 0.5rem;
     }
     </style>
 </head>
 
 <body>
+    <!-- WebSocket Status -->
+    <div class="ws-status disconnected" id="wsStatus">
+        <i class="fas fa-circle"></i>
+        <span>Offline</span>
+    </div>
+
     <div class="main-contents">
-        <!-- Stats Row -->
-        <div class="row mb-4">
+        <!-- Stats row -->
+        <div class="row mb-4" id="statsRow">
             <div class="col-md-4">
                 <div class="stats-card">
                     <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <i class="bi bi-people-fill fs-1"></i>
-                        </div>
+                        <div><i class="bi bi-people-fill fs-1"></i></div>
                         <div class="text-end">
-                            <h3 class="mb-0"><?= $totalOfficers ?></h3>
+                            <h3 class="mb-0" id="totalOfficers"><?= $totalOfficers ?></h3>
                             <small>Total Officers</small>
                         </div>
                     </div>
@@ -289,11 +333,9 @@ $officerCount = $totalOfficers - $adminCount;
             <div class="col-md-4">
                 <div class="stats-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
                     <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <i class="bi bi-shield-check fs-1"></i>
-                        </div>
+                        <div><i class="bi bi-shield-check fs-1"></i></div>
                         <div class="text-end">
-                            <h3 class="mb-0"><?= $adminCount ?></h3>
+                            <h3 class="mb-0" id="adminCount"><?= $adminCount ?></h3>
                             <small>Admins</small>
                         </div>
                     </div>
@@ -302,11 +344,9 @@ $officerCount = $totalOfficers - $adminCount;
             <div class="col-md-4">
                 <div class="stats-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
                     <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <i class="bi bi-person-badge fs-1"></i>
-                        </div>
+                        <div><i class="bi bi-person-badge fs-1"></i></div>
                         <div class="text-end">
-                            <h3 class="mb-0"><?= $officerCount ?></h3>
+                            <h3 class="mb-0" id="officerCount"><?= $officerCount ?></h3>
                             <small>Officers</small>
                         </div>
                     </div>
@@ -314,12 +354,10 @@ $officerCount = $totalOfficers - $adminCount;
             </div>
         </div>
 
-        <!-- Main Card -->
+        <!-- Main card -->
         <div class="card">
             <div class="card-header-custom d-flex align-items-center justify-content-between flex-wrap">
-                <div>
-                    <i class="bi bi-grid-3x3-gap-fill me-2"></i> Manage Officers
-                </div>
+                <div><i class="bi bi-grid-3x3-gap-fill me-2"></i> Manage Officers</div>
                 <div class="d-flex gap-2 mt-2 mt-sm-0">
                     <div class="search-box">
                         <input type="text" id="searchInput" class="form-control" placeholder="Search by name or ID...">
@@ -336,7 +374,7 @@ $officerCount = $totalOfficers - $adminCount;
                 <div class="row" id="officersContainer">
                     <?php if (empty($officers)): ?>
                     <div class="col-12">
-                        <div class="empty-state">
+                        <div class="empty-state text-center p-5">
                             <i class="bi bi-inbox fs-1"></i>
                             <p class="mt-2">No officers found.</p>
                         </div>
@@ -392,24 +430,24 @@ $officerCount = $totalOfficers - $adminCount;
         </div>
     </div>
 
-    <!-- Modals (unchanged) -->
-    <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+    <!-- Modals -->
+    <div class="modal fade" id="editModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="editModalLabel">Edit Officer</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <h5 class="modal-title">Edit Officer</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <form id="editForm">
                     <div class="modal-body">
                         <input type="hidden" name="action" value="edit">
                         <input type="hidden" name="officer_id" id="edit_officer_id">
                         <div class="mb-3">
-                            <label for="edit_full_name" class="form-label">Full Name</label>
+                            <label class="form-label">Full Name</label>
                             <input type="text" class="form-control" id="edit_full_name" name="full_name" required>
                         </div>
                         <div class="mb-3">
-                            <label for="edit_position" class="form-label">Position</label>
+                            <label class="form-label">Position</label>
                             <select class="form-select" id="edit_position" name="position" required>
                                 <option value="Admin">Admin</option>
                                 <option value="Officer">Officer</option>
@@ -425,12 +463,12 @@ $officerCount = $totalOfficers - $adminCount;
         </div>
     </div>
 
-    <div class="modal fade" id="resetPwdModal" tabindex="-1" aria-labelledby="resetPwdModalLabel" aria-hidden="true">
+    <div class="modal fade" id="resetPwdModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="resetPwdModalLabel">Reset Password</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <h5 class="modal-title">Reset Password</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <p>Are you sure you want to reset the password for <strong id="resetOfficerName"></strong>?</p>
@@ -444,12 +482,12 @@ $officerCount = $totalOfficers - $adminCount;
         </div>
     </div>
 
-    <div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal fade" id="deleteModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="deleteModalLabel">Delete Officer</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <h5 class="modal-title">Delete Officer</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <p>Are you sure you want to delete <strong id="deleteOfficerName"></strong>? This action cannot be
@@ -500,7 +538,125 @@ $officerCount = $totalOfficers - $adminCount;
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script>
     $(document).ready(function() {
-        // Search filter (with debounce for better performance)
+        // ========== WebSocket ==========
+        const WS_CONFIG = {
+            host: window.location.hostname,
+            port: 8080,
+            protocol: window.location.protocol === 'https:' ? 'wss:' : 'ws:',
+            reconnectInterval: 3000,
+            maxReconnectAttempts: 5
+        };
+        let ws = null;
+        let reconnectAttempts = 0;
+        let reconnectTimer = null;
+
+        function updateWSStatus(status, text) {
+            const el = document.getElementById('wsStatus');
+            if (el) {
+                el.className = `ws-status ${status}`;
+                el.innerHTML = `<i class="fas fa-circle"></i><span>${text}</span>`;
+            }
+        }
+
+        function initWebSocket() {
+            if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+            const wsUrl = `${WS_CONFIG.protocol}//${WS_CONFIG.host}:${WS_CONFIG.port}`;
+            updateWSStatus('connecting', 'Connecting...');
+            try {
+                ws = new WebSocket(wsUrl);
+                ws.onopen = () => {
+                    updateWSStatus('connected', 'Live');
+                    reconnectAttempts = 0;
+                };
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                };
+                ws.onclose = () => {
+                    updateWSStatus('disconnected', 'Offline');
+                    if (reconnectAttempts < WS_CONFIG.maxReconnectAttempts) {
+                        reconnectAttempts++;
+                        updateWSStatus('connecting', `Reconnecting (${reconnectAttempts})...`);
+                        reconnectTimer = setTimeout(initWebSocket, WS_CONFIG.reconnectInterval);
+                    }
+                };
+                ws.onerror = (err) => {
+                    console.error('WebSocket error:', err);
+                    updateWSStatus('disconnected', 'Error');
+                };
+            } catch (e) {
+                console.error(e);
+                updateWSStatus('disconnected', 'Failed');
+            }
+        }
+
+        function handleWebSocketMessage(data) {
+            if (data.type === 'OFFICER_UPDATED') {
+                const payload = data.payload;
+                const officerId = payload.officer_id;
+                const card = $(`.officer-card[data-id="${officerId}"]`);
+                if (card.length && payload.value && payload.value.full_name && payload.value.position) {
+                    card.find('.card-title').text(payload.value.full_name);
+                    const badge = card.find('.badge-admin, .badge-officer');
+                    badge.text(payload.value.position);
+                    badge.removeClass('badge-admin badge-officer');
+                    badge.addClass(payload.value.position === 'Admin' ? 'badge-admin' : 'badge-officer');
+                    card.data('name', payload.value.full_name);
+                    card.data('position', payload.value.position);
+                    card.find('.edit-btn').data('name', payload.value.full_name).data('position', payload.value
+                        .position);
+                    card.find('.reset-pwd-btn').data('name', payload.value.full_name);
+                }
+                refreshStats();
+            } else if (data.type === 'OFFICER_DELETED') {
+                const officerId = data.payload.officer_id;
+                const card = $(`.officer-card[data-id="${officerId}"]`);
+                if (card.length) {
+                    card.remove();
+                    if ($('.officer-card').length === 0) {
+                        $('#officersContainer').html(`
+                            <div class="col-12">
+                                <div class="empty-state text-center p-5">
+                                    <i class="bi bi-inbox fs-1"></i>
+                                    <p class="mt-2">No officers found.</p>
+                                </div>
+                            </div>
+                        `);
+                    }
+                    refreshStats();
+                }
+            }
+        }
+
+        function refreshStats() {
+            $.ajax({
+                url: window.location.pathname,
+                method: 'GET',
+                data: {
+                    action: 'get_stats'
+                },
+                dataType: 'json',
+                success: function(res) {
+                    if (res.success) {
+                        $('#totalOfficers').text(res.totalOfficers);
+                        $('#adminCount').text(res.adminCount);
+                        $('#officerCount').text(res.officerCount);
+                    }
+                },
+                error: function() {
+                    // Fallback: recalc from DOM
+                    const total = $('.officer-card').length;
+                    const admins = $('.officer-card .badge-admin').length;
+                    $('#totalOfficers').text(total);
+                    $('#adminCount').text(admins);
+                    $('#officerCount').text(total - admins);
+                }
+            });
+        }
+
+        initWebSocket();
+
+        // ========== Search filter ==========
         let searchTimeout;
         $('#searchInput').on('keyup', function() {
             clearTimeout(searchTimeout);
@@ -510,36 +666,34 @@ $officerCount = $totalOfficers - $adminCount;
                     const name = $(this).data('name').toLowerCase();
                     const id = $(this).data('id').toLowerCase();
                     $(this).toggle(name.includes(searchText) || id.includes(
-                    searchText));
+                        searchText));
                 });
-                // Show empty message if none visible
-                const visible = $('.officer-card:visible').length;
-                if (visible === 0 && $('#emptyMessage').length === 0) {
+                if ($('.officer-card:visible').length === 0 && $('#emptyMessage').length ===
+                    0) {
                     $('#officersContainer').append(`
                         <div id="emptyMessage" class="col-12">
-                            <div class="empty-state">
+                            <div class="empty-state text-center p-5">
                                 <i class="bi bi-search"></i>
                                 <p class="mt-2">No officers match your search.</p>
                             </div>
                         </div>
                     `);
-                } else if (visible > 0) {
+                } else if ($('.officer-card:visible').length > 0) {
                     $('#emptyMessage').remove();
                 }
             }, 300);
         });
 
-        // Refresh button (reloads the page)
         $('#refreshBtn').click(() => location.reload());
 
-        // Toast helper
+        // ========== Toast helper ==========
         function showToast(type, message, extra = null) {
-            const toastId = type === 'success' ? 'successToast' : (type === 'error' ? 'errorToast' :
-                'infoToast');
-            const toastEl = document.getElementById(toastId);
+            let toastId = 'successToast';
+            if (type === 'error') toastId = 'errorToast';
+            else if (type === 'info') toastId = 'infoToast';
+
             if (type === 'info') {
-                $('#newPasswordText').text(message);
-                if (extra) $('#newPasswordText').text(extra);
+                $('#newPasswordText').text(extra || message);
                 $('#copyPasswordBtn').off('click').on('click', function() {
                     navigator.clipboard.writeText($('#newPasswordText').text()).then(() => {
                         showToast('success', 'Password copied to clipboard!');
@@ -548,12 +702,12 @@ $officerCount = $totalOfficers - $adminCount;
             } else {
                 $(`#${toastId} .toast-body`).text(message);
             }
-            new bootstrap.Toast(toastEl).show();
+            new bootstrap.Toast(document.getElementById(toastId)).show();
         }
 
-        // Loading state helper
         function setLoading(btn, isLoading) {
             if (isLoading) {
+                btn.data('original-text', btn.html());
                 btn.prop('disabled', true);
                 btn.html('<span class="loading-spinner"></span> Loading...');
             } else {
@@ -562,7 +716,7 @@ $officerCount = $totalOfficers - $adminCount;
             }
         }
 
-        // Edit modal
+        // ========== Edit modal ==========
         let currentEditCard = null;
         $(document).on('click', '.edit-btn', function() {
             currentEditCard = $(this).closest('.officer-card');
@@ -575,20 +729,25 @@ $officerCount = $totalOfficers - $adminCount;
         $('#editForm').submit(function(e) {
             e.preventDefault();
             const submitBtn = $('#editSubmitBtn');
-            submitBtn.data('original-text', submitBtn.html());
             setLoading(submitBtn, true);
             const formData = new FormData(this);
-            fetch(window.location.href, {
+            fetch(window.location.pathname, {
                     method: 'POST',
                     body: formData
                 })
-                .then(res => res.json())
+                .then(async res => {
+                    if (!res.ok) {
+                        const text = await res.text();
+                        throw new Error(`HTTP ${res.status}: ${text}`);
+                    }
+                    return res.json();
+                })
                 .then(data => {
                     setLoading(submitBtn, false);
                     if (data.status === 'success') {
                         $('#editModal').modal('hide');
                         showToast('success', data.message);
-                        // Update card without reload
+                        // Update UI immediately (WebSocket will also update but this is faster)
                         const newName = $('#edit_full_name').val();
                         const newPosition = $('#edit_position').val();
                         currentEditCard.find('.card-title').text(newName);
@@ -598,17 +757,22 @@ $officerCount = $totalOfficers - $adminCount;
                         badge.addClass(newPosition === 'Admin' ? 'badge-admin' : 'badge-officer');
                         currentEditCard.data('name', newName);
                         currentEditCard.data('position', newPosition);
+                        currentEditCard.find('.edit-btn').data('name', newName).data('position',
+                            newPosition);
+                        currentEditCard.find('.reset-pwd-btn').data('name', newName);
+                        refreshStats();
                     } else {
                         showToast('error', data.message);
                     }
                 })
-                .catch(() => {
+                .catch(err => {
+                    console.error('Fetch error:', err);
                     setLoading(submitBtn, false);
                     showToast('error', 'Network error. Please try again.');
                 });
         });
 
-        // Reset Password
+        // ========== Reset Password ==========
         let resetOfficerId = null;
         $(document).on('click', '.reset-pwd-btn', function() {
             resetOfficerId = $(this).data('id');
@@ -619,32 +783,35 @@ $officerCount = $totalOfficers - $adminCount;
         $('#confirmResetPwd').click(function() {
             if (!resetOfficerId) return;
             const btn = $(this);
-            btn.data('original-text', btn.html());
             setLoading(btn, true);
             const formData = new FormData();
             formData.append('action', 'reset_password');
             formData.append('officer_id', resetOfficerId);
-            fetch(window.location.href, {
+            fetch(window.location.pathname, {
                     method: 'POST',
                     body: formData
                 })
-                .then(res => res.json())
+                .then(async res => {
+                    if (!res.ok) throw new Error(await res.text());
+                    return res.json();
+                })
                 .then(data => {
                     setLoading(btn, false);
                     $('#resetPwdModal').modal('hide');
                     if (data.status === 'success') {
-                        showToast('info', `New password: ${data.new_password}`, data.new_password);
+                        showToast('info', `New password generated`, data.new_password);
                     } else {
                         showToast('error', data.message);
                     }
                 })
-                .catch(() => {
+                .catch(err => {
+                    console.error('Reset error:', err);
                     setLoading(btn, false);
                     showToast('error', 'Network error. Please try again.');
                 });
         });
 
-        // Delete
+        // ========== Delete ==========
         let deleteOfficerId = null;
         $(document).on('click', '.delete-btn', function() {
             deleteOfficerId = $(this).data('id');
@@ -655,16 +822,18 @@ $officerCount = $totalOfficers - $adminCount;
         $('#confirmDelete').click(function() {
             if (!deleteOfficerId) return;
             const btn = $(this);
-            btn.data('original-text', btn.html());
             setLoading(btn, true);
             const formData = new FormData();
             formData.append('action', 'delete');
             formData.append('officer_id', deleteOfficerId);
-            fetch(window.location.href, {
+            fetch(window.location.pathname, {
                     method: 'POST',
                     body: formData
                 })
-                .then(res => res.json())
+                .then(async res => {
+                    if (!res.ok) throw new Error(await res.text());
+                    return res.json();
+                })
                 .then(data => {
                     setLoading(btn, false);
                     $('#deleteModal').modal('hide');
@@ -674,24 +843,29 @@ $officerCount = $totalOfficers - $adminCount;
                         if ($('.officer-card').length === 0) {
                             $('#officersContainer').html(`
                                 <div class="col-12">
-                                    <div class="empty-state">
+                                    <div class="empty-state text-center p-5">
                                         <i class="bi bi-inbox fs-1"></i>
                                         <p class="mt-2">No officers found.</p>
                                     </div>
                                 </div>
                             `);
                         }
-                        // Update stats (simple: reload page after delete to keep counts accurate)
-                        // Alternatively, we could update stats dynamically, but reload is simpler.
-                        location.reload();
+                        refreshStats();
                     } else {
                         showToast('error', data.message);
                     }
                 })
-                .catch(() => {
+                .catch(err => {
+                    console.error('Delete error:', err);
                     setLoading(btn, false);
                     showToast('error', 'Network error. Please try again.');
                 });
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            if (ws) ws.close();
         });
     });
     </script>
