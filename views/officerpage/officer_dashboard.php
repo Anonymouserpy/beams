@@ -63,7 +63,6 @@ $upcoming = $conn->query("
         --success-gradient: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
         --warning-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-        --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08);
         --hover-shadow: 0 8px 30px -5px rgba(0, 0, 0, 0.12);
     }
 
@@ -86,8 +85,14 @@ $upcoming = $conn->query("
     }
 
     .main-contents {
-        margin-left: var(--sidebar-width, 250px);
-        transition: margin-left 0.3s ease;
+        margin-left: 220px;
+        transition: var(--transition);
+    }
+
+    @media (max-width: 992px) {
+        .main-contents {
+            margin-left: 0;
+        }
     }
 
     .dashboard-header {
@@ -994,83 +999,86 @@ $upcoming = $conn->query("
                 </div>
             </div>
         </div>
+    </div>
 
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-        <script>
-        // Set current date in header
-        document.getElementById('currentDate').textContent = new Date().toLocaleDateString('en-US', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // Set current date in header
+    document.getElementById('currentDate').textContent = new Date().toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
 
-        // Event Modal Handler
-        const eventViewModal = document.getElementById('eventViewModal');
-        eventViewModal.addEventListener('show.bs.modal', function(event) {
-            const button = event.relatedTarget;
-            const eventData = JSON.parse(button.getAttribute('data-event'));
+    // Event Modal Handler
+    const eventViewModal = document.getElementById('eventViewModal');
+    eventViewModal.addEventListener('show.bs.modal', function(event) {
+        const button = event.relatedTarget;
+        const eventData = JSON.parse(button.getAttribute('data-event'));
 
-            document.getElementById('modalEventTitle').textContent = eventData.name;
-            document.getElementById('modalEventDate').textContent = eventData.date;
+        document.getElementById('modalEventTitle').textContent = eventData.name;
+        document.getElementById('modalEventDate').textContent = eventData.date;
 
-            const typeMap = {
-                'whole_day': 'Whole Day Event',
-                'half_day_am': 'Half Day (Morning)',
-                'half_day_pm': 'Half Day (Afternoon)'
-            };
-            document.getElementById('modalEventType').textContent = typeMap[eventData.type] || eventData.type
-                .replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase());
+        const typeMap = {
+            'whole_day': 'Whole Day Event',
+            'half_day_am': 'Half Day (Morning)',
+            'half_day_pm': 'Half Day (Afternoon)'
+        };
+        document.getElementById('modalEventType').textContent = typeMap[eventData.type] || eventData
+            .type
+            .replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase());
 
-            document.getElementById('modalEventLocation').textContent = eventData.location;
-            document.getElementById('modalEventAttendance').textContent = eventData.attendance + ' students';
-            document.getElementById('modalEventCreator').textContent = eventData.created_by;
-            document.getElementById('modalEventCreated').textContent = eventData.created_at;
-            document.getElementById('modalEventDescription').textContent = eventData.description;
+        document.getElementById('modalEventLocation').textContent = eventData.location;
+        document.getElementById('modalEventAttendance').textContent = eventData.attendance +
+            ' students';
+        document.getElementById('modalEventCreator').textContent = eventData.created_by;
+        document.getElementById('modalEventCreated').textContent = eventData.created_at;
+        document.getElementById('modalEventDescription').textContent = eventData.description;
 
-            document.getElementById('modalEditLink').href = 'edit_event.php?id=' + eventData.id;
-        });
+        document.getElementById('modalEditLink').href = 'edit_event.php?id=' + eventData.id;
+    });
 
-        // Fine Chart - Compact sizing
-        new Chart(document.getElementById('fineChart'), {
-            type: 'doughnut',
-            data: {
-                labels: ['Paid Fines', 'Pending Fines'],
-                datasets: [{
-                    data: [<?php echo $paid_fines; ?>, <?php echo $pending_fines; ?>],
-                    backgroundColor: ['#10b981', '#ef4444'],
-                    borderWidth: 0,
-                    hoverOffset: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '65%',
-                plugins: {
-                    legend: {
-                        display: false
+    // Fine Chart - Compact sizing
+    new Chart(document.getElementById('fineChart'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Paid Fines', 'Pending Fines'],
+            datasets: [{
+                data: [<?php echo $paid_fines; ?>, <?php echo $pending_fines; ?>],
+                backgroundColor: ['#10b981', '#ef4444'],
+                borderWidth: 0,
+                hoverOffset: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '65%',
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    backgroundColor: '#1a202c',
+                    padding: 10,
+                    cornerRadius: 6,
+                    titleFont: {
+                        size: 12
                     },
-                    tooltip: {
-                        backgroundColor: '#1a202c',
-                        padding: 10,
-                        cornerRadius: 6,
-                        titleFont: {
-                            size: 12
-                        },
-                        bodyFont: {
-                            size: 12
-                        },
-                        callbacks: {
-                            label: function(context) {
-                                return ' Rs ' + context.parsed.toLocaleString();
-                            }
+                    bodyFont: {
+                        size: 12
+                    },
+                    callbacks: {
+                        label: function(context) {
+                            return ' Rs ' + context.parsed.toLocaleString();
                         }
                     }
                 }
             }
-        });
-        </script>
+        }
+    });
+    </script>
 </body>
 
 </html>

@@ -452,6 +452,156 @@ class AttendanceUpdateServer implements MessageComponentInterface
                 }
                 break;
 
+            // ---------- OFFICERS CRUD ----------
+            case 'CREATE_OFFICER':
+                if (isset($data['payload']['officer_id'], $data['payload']['full_name'], $data['payload']['password'], $data['payload']['position'])) {
+                    $officerId   = $data['payload']['officer_id'];
+                    $fullName    = $data['payload']['full_name'];
+                    $plainPwd    = $data['payload']['password'];
+                    $position    = $data['payload']['position'];
+
+                    // Validate position
+                    if (!in_array($position, ['Admin', 'Officer'])) {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => 'Invalid position']);
+                        break;
+                    }
+
+                    // Hash password
+                    $hashedPwd = password_hash($plainPwd, PASSWORD_DEFAULT);
+
+                    if ($this->pdo) {
+                        try {
+                            // Check for duplicate officer_id
+                            $stmt = $this->pdo->prepare("SELECT officer_id FROM officers WHERE officer_id = :oid");
+                            $stmt->execute([':oid' => $officerId]);
+                            if ($stmt->fetch()) {
+                                $this->sendToClient($from, ['type' => 'error', 'message' => 'Officer ID already exists']);
+                                break;
+                            }
+
+                            $stmt = $this->pdo->prepare("
+                                INSERT INTO officers (officer_id, full_name, password, position, created_at)
+                                VALUES (:oid, :name, :pwd, :pos, NOW())
+                            ");
+                            $stmt->execute([
+                                ':oid'  => $officerId,
+                                ':name' => $fullName,
+                                ':pwd'  => $hashedPwd,
+                                ':pos'  => $position
+                            ]);
+
+                            $response = [
+                                'type'    => 'OFFICER_CREATED',
+                                'payload' => [
+                                    'officer_id' => $officerId,
+                                    'full_name'  => $fullName,
+                                    'position'   => $position
+                                ]
+                            ];
+                            $this->broadcastToAll(json_encode($response));
+                            $this->logMessage($response);
+                            echo "Officer created: $officerId\n";
+                        } catch (PDOException $e) {
+                            $this->sendToClient($from, ['type' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
+                        }
+                    } else {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => 'No database connection']);
+                    }
+                } else {
+                    $this->sendToClient($from, ['type' => 'error', 'message' => 'Missing required fields for officer']);
+                }
+                break;
+
+            case 'READ_OFFICER':
+                $filters = [];
+                $params  = [];
+                if (isset($data['payload']['officer_id'])) {
+                    $filters[] = "officer_id = :oid";
+                    $params[':oid'] = $data['payload']['officer_id'];
+                }
+                // Exclude password from results
+                $sql = "SELECT officer_id, full_name, position, created_at FROM officers";
+                if (!empty($filters)) {
+                    $sql .= " WHERE " . implode(' AND ', $filters);
+                }
+
+                if ($this->pdo) {
+                    try {
+                        $stmt = $this->pdo->prepare($sql);
+                        $stmt->execute($params);
+                        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        $this->sendToClient($from, ['type' => 'OFFICER_READ', 'payload' => $rows]);
+                    } catch (PDOException $e) {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
+                    }
+                } else {
+                    $this->sendToClient($from, ['type' => 'error', 'message' => 'No database connection']);
+                }
+                break;
+
+            case 'UPDATE_OFFICER':
+                if (isset($data['payload']['officer_id'], $data['payload']['field'], $data['payload']['value'])) {
+                    $officerId = $data['payload']['officer_id'];
+                    $field     = $data['payload']['field'];
+                    $value     = $data['payload']['value'];
+
+                    $allowedFields = ['full_name', 'position']; // Add more if needed, but never allow password update here (handle separately)
+                    if (!in_array($field, $allowedFields)) {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => "Invalid field: $field"]);
+                        break;
+                    }
+
+                    if ($this->pdo) {
+                        try {
+                            $stmt = $this->pdo->prepare("UPDATE officers SET $field = :value WHERE officer_id = :oid");
+                            $stmt->execute([':value' => $value, ':oid' => $officerId]);
+
+                            $response = [
+                                'type'    => 'OFFICER_UPDATED',
+                                'payload' => [
+                                    'officer_id' => $officerId,
+                                    'field'      => $field,
+                                    'value'      => $value
+                                ]
+                            ];
+                            $this->broadcastToAll(json_encode($response));
+                            $this->logMessage($response);
+                            echo "Officer $officerId updated: $field = $value\n";
+                        } catch (PDOException $e) {
+                            $this->sendToClient($from, ['type' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
+                        }
+                    } else {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => 'No database connection']);
+                    }
+                } else {
+                    $this->sendToClient($from, ['type' => 'error', 'message' => 'Missing officer_id, field, or value']);
+                }
+                break;
+
+            case 'DELETE_OFFICER':
+                if (isset($data['payload']['officer_id'])) {
+                    $officerId = $data['payload']['officer_id'];
+
+                    if ($this->pdo) {
+                        try {
+                            $stmt = $this->pdo->prepare("DELETE FROM officers WHERE officer_id = ?");
+                            $stmt->execute([$officerId]);
+
+                            $response = ['type' => 'OFFICER_DELETED', 'payload' => ['officer_id' => $officerId]];
+                            $this->broadcastToAll(json_encode($response));
+                            $this->logMessage($response);
+                            echo "Officer $officerId deleted.\n";
+                        } catch (PDOException $e) {
+                            $this->sendToClient($from, ['type' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
+                        }
+                    } else {
+                        $this->sendToClient($from, ['type' => 'error', 'message' => 'No database connection']);
+                    }
+                } else {
+                    $this->sendToClient($from, ['type' => 'error', 'message' => 'Missing officer_id']);
+                }
+                break;
+
             case 'ping':
                 $this->sendToClient($from, ['type' => 'pong']);
                 break;

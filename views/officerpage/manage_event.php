@@ -395,7 +395,7 @@ include "../sidebar/officer_sidebar.php";
     }
 
     .main-contents {
-        margin-left: 280px;
+        margin-left: 220px;
         padding: 30px;
         transition: var(--transition);
     }
@@ -1454,7 +1454,7 @@ include "../sidebar/officer_sidebar.php";
     function deleteEvent(eventId, eventName) {
         if (confirm(
                 `Are you sure you want to delete the event "${escapeHtml(eventName)}"? This action cannot be undone.`
-                )) {
+            )) {
             fetch('manage_event.php', {
                     method: 'POST',
                     headers: {
@@ -1506,7 +1506,7 @@ include "../sidebar/officer_sidebar.php";
                 if (eventId) {
                     loadEventForEdit(eventId);
                     const editModal = new bootstrap.Modal(document.getElementById(
-                    'eventModal'));
+                        'eventModal'));
                     editModal.show();
                 }
             });
@@ -1529,7 +1529,7 @@ include "../sidebar/officer_sidebar.php";
             const eventId = this.getAttribute('data-event-id');
             if (eventId) {
                 const viewModal = bootstrap.Modal.getInstance(document.getElementById(
-                'viewEventModal'));
+                    'viewEventModal'));
                 if (viewModal) viewModal.hide();
                 loadEventForEdit(eventId);
                 const editModal = new bootstrap.Modal(document.getElementById('eventModal'));
@@ -1545,7 +1545,7 @@ include "../sidebar/officer_sidebar.php";
             const formData = new FormData(this);
             saveBtn.disabled = true;
             saveBtn.innerHTML =
-            '<span class="spinner-border spinner-border-sm me-2"></span>Updating...';
+                '<span class="spinner-border spinner-border-sm me-2"></span>Updating...';
 
             fetch('manage_event.php', {
                     method: 'POST',

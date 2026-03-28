@@ -1,12 +1,28 @@
 <?php
 session_start();
-include "../sidebar/officer_sidebar.php";
-require "../../Connection/connection.php";
+
+// Adjust paths if necessary
+require __DIR__ . '/../../Connection/connection.php';
 
 // Ensure only logged-in officers can access this page
 if (!isset($_SESSION['officer_id'])) {
-    header("Location: ../../officer_Login.php");
+    header('Location: ../../officer_Login.php');
     exit();
+}
+
+/**
+ * Send a message to the WebSocket server via internal TCP socket.
+ * @param array $data
+ */
+function notifyWebSocket($data)
+{
+    $socket = @fsockopen('127.0.0.1', 8081, $errno, $errstr, 0.5);
+    if ($socket) {
+        fwrite($socket, json_encode($data));
+        fclose($socket);
+    } else {
+        error_log("WebSocket notification failed: $errstr ($errno)");
+    }
 }
 
 // Handle AJAX registration request
@@ -55,6 +71,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $insert->bind_param("ssss", $officer_id, $full_name, $position, $hashed_password);
 
         if ($insert->execute()) {
+            // Send WebSocket notification
+            notifyWebSocket([
+                'type'    => 'OFFICER_CREATED',
+                'payload' => [
+                    'officer_id' => $officer_id,
+                    'full_name'  => $full_name,
+                    'position'   => $position
+                ]
+            ]);
             echo json_encode(['status' => 'success', 'message' => 'Officer registered successfully.']);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Registration failed. Please try again.']);
@@ -63,10 +88,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         echo json_encode(['status' => 'error', 'message' => implode(' ', $errors)]);
     }
-    exit();
+    exit(); // Stop execution – no sidebar or HTML should be included
 }
-?>
 
+// If not POST, include the sidebar and display the HTML form
+include __DIR__ . '/../sidebar/officer_sidebar.php';
+?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -108,6 +135,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     .card-body {
         padding: 1.5rem;
     }
+
+    .main-contents {
+        margin-left: 220px;
+        padding: 30px;
+        transition: var(--transition);
+    }
+
+    @media (max-width: 992px) {
+        .main-contents {
+            margin-left: 0;
+            padding: 20px;
+        }
+    }
+
 
     .form-label {
         font-weight: 500;
@@ -231,82 +272,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 
 <body>
-    <div class="d-flex">
-        <!-- Sidebar is already included above -->
-        <div class="main-content flex-grow-1" style="margin-left: 280px; padding: 2rem;">
-            <div class="container-fluid px-0">
-                <div class="row justify-content-center">
-                    <div class="col-lg-8 col-xl-6">
-                        <div class="card registration-card">
-                            <div class="card-header d-flex align-items-center">
-                                <i class="bi bi-person-plus-fill me-2"
-                                    style="font-size: 1.8rem; color: var(--primary-color);"></i>
-                                Register New Officer
-                            </div>
-                            <div class="card-body">
-                                <!-- Alert Messages -->
-                                <div class="alert" id="errorAlert" role="alert"></div>
-                                <div class="alert" id="successAlert" role="alert"></div>
-
-                                <form id="registerForm" method="POST">
-                                    <div class="mb-3">
-                                        <label for="full_name" class="form-label">Full Name</label>
-                                        <input type="text" class="form-control" id="full_name" name="full_name"
-                                            placeholder="Enter full name" required>
-                                        <div class="invalid-feedback">Full name is required.</div>
-                                    </div>
-
-                                    <div class="mb-3">
-                                        <label for="officer_id" class="form-label">Officer ID</label>
-                                        <input type="text" class="form-control" id="officer_id" name="officer_id"
-                                            placeholder="e.g., 11-1111-111" required>
-                                        <div class="invalid-feedback">Officer ID is required.</div>
-                                    </div>
-
-                                    <div class="row">
-                                        <div class="col-md-6 mb-3">
-                                            <label for="position" class="form-label">Position</label>
-                                            <select class="form-select" id="position" name="position" required>
-                                                <option value="" selected disabled>Select position</option>
-                                                <option value="Admin">Admin</option>
-                                                <option value="Officer">Officer</option>
-                                            </select>
-                                            <div class="invalid-feedback">Please select a position.</div>
-                                        </div>
-
-                                        <div class="col-md-6 mb-3">
-                                            <label for="password" class="form-label">Password</label>
-                                            <input type="password" class="form-control" id="password" name="password"
-                                                placeholder="Min. 6 characters" required minlength="6">
-                                            <div class="invalid-feedback">Password must be at least 6 characters.</div>
-                                        </div>
-                                    </div>
-
-                                    <div class="mb-4 position-relative">
-                                        <label for="confirm_password" class="form-label">Confirm Password</label>
-                                        <input type="password" class="form-control" id="confirm_password"
-                                            placeholder="Re-enter password" required>
-                                        <div class="invalid-feedback">Passwords do not match.</div>
-                                        <i class="bi bi-check-circle-fill password-match-icon" id="passwordMatchIcon"
-                                            style="display: none;"></i>
-                                    </div>
-
-                                    <button type="submit" class="btn btn-primary w-100" id="submitBtn">
-                                        <span class="spinner-border spinner-border-sm me-2" role="status"
-                                            aria-hidden="true"></span>
-                                        <span class="btn-text">Register Officer</span>
-                                    </button>
-                                </form>
-
-                                <div class="text-center mt-4 footer-links">
-                                    <small class="text-muted">
-                                        <i class="bi bi-arrow-left me-1"></i>
-                                        <a href="officer_management.php">Back to Officer Management</a>
-                                    </small>
-                                </div>
+    <div class="main-contents">
+        <div class="card registration-card">
+            <div class="card-header d-flex align-items-center">
+                <i class="bi bi-person-plus-fill me-2" style="font-size: 1.8rem; color: var(--primary-color);"></i>
+                Register New Officer
+            </div>
+            <div class="card-body">
+                <!-- Alert Messages -->
+                <div class="alert" id="errorAlert" role="alert"></div>
+                <div class="alert" id="successAlert" role="alert"></div>
+                <form id="registerForm" method="POST">
+                    <div class="mb-3">
+                        <label for="full_name" class="form-label">Full Name</label>
+                        <input type="text" class="form-control" id="full_name" name="full_name"
+                            placeholder="Enter full name" required>
+                        <div class="invalid-feedback">Full name is required.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="officer_id" class="form-label">Officer ID</label>
+                        <input type="text" class="form-control" id="officer_id" name="officer_id"
+                            placeholder="e.g., 11-1111-111" required>
+                        <div class="invalid-feedback">Officer ID is required.</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="position" class="form-label">Position</label>
+                            <select class="form-select" id="position" name="position" required>
+                                <option value="" selected disabled>Select position</option>
+                                <option value="Admin">Admin</option>
+                                <option value="Officer">Officer</option>
+                            </select>
+                            <div class="invalid-feedback">Please select a position.</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="password" name="password"
+                                placeholder="Min. 6 characters" required minlength="6">
+                            <div class="invalid-feedback">Password must be at least 6 characters.
                             </div>
                         </div>
                     </div>
+                    <div class="mb-4 position-relative">
+                        <label for="confirm_password" class="form-label">Confirm Password</label>
+                        <input type="password" class="form-control" id="confirm_password"
+                            placeholder="Re-enter password" required>
+                        <div class="invalid-feedback">Passwords do not match.</div>
+                        <i class="bi bi-check-circle-fill password-match-icon" id="passwordMatchIcon"
+                            style="display: none;"></i>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100" id="submitBtn">
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <span class="btn-text">Register Officer</span>
+                    </button>
+                </form>
+                <div class="text-center mt-4 footer-links">
+
                 </div>
             </div>
         </div>
@@ -421,9 +442,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         showSuccess(data.message);
                         form.reset();
                         matchIcon.style.display = 'none';
-                        // Optional redirect after delay
                         setTimeout(() => {
-                            window.location.href = 'officer_management.php';
+                            window.location.href = 'officer_registration.php';
                         }, 2000);
                     } else {
                         showError(data.message);
@@ -432,7 +452,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 .catch(error => {
                     submitBtn.classList.remove('btn-loading');
                     submitBtn.disabled = false;
-                    showError('Network error. Please try again.');
+                    console.error('Fetch error:', error);
+                    showError('Invalid credentials.');
                 });
         });
 
@@ -447,6 +468,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             successAlert.classList.add('show');
             setTimeout(() => successAlert.classList.remove('show'), 5000);
         }
+
+        // ---------- WebSocket Client ----------
+        let ws;
+        // Determine protocol based on current page
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.hostname}:8080`;
+
+        function connectWebSocket() {
+            ws = new WebSocket(wsUrl);
+            ws.onopen = function() {
+                console.log('WebSocket connected');
+            };
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.type === 'OFFICER_CREATED') {
+                    const toast = document.createElement('div');
+                    toast.className =
+                        'alert alert-info alert-dismissible fade show position-fixed bottom-0 end-0 m-3';
+                    toast.style.zIndex = '9999';
+                    toast.style.minWidth = '300px';
+                    toast.innerHTML = `
+                        <strong><i class="bi bi-person-plus-fill me-2"></i>New Officer Registered!</strong><br>
+                        <small>ID: ${escapeHtml(data.payload.officer_id)}<br>
+                        Name: ${escapeHtml(data.payload.full_name)}<br>
+                        Position: ${escapeHtml(data.payload.position)}</small>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    document.body.appendChild(toast);
+                    setTimeout(() => toast.remove(), 5000);
+                }
+            };
+            ws.onclose = function() {
+                console.log('WebSocket disconnected, reconnecting in 3s...');
+                setTimeout(connectWebSocket, 3000);
+            };
+            ws.onerror = function(err) {
+                console.error('WebSocket error:', err);
+            };
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+
+        // Start WebSocket connection after page loads
+        window.addEventListener('load', connectWebSocket);
     })();
     </script>
 </body>

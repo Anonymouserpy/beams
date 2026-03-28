@@ -524,268 +524,250 @@ require "../sidebar/officer_sidebar.php";
 <body>
 
     <div class="main-contents">
-        <div class="container mb-5">
-            <div class="row justify-content-center">
-                <div class="col-lg-9">
-                    <div class="main-card animate-in">
-                        <!-- Card Header -->
-                        <div class="card-header-custom">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="header-icon">
-                                    <i class="bi bi-calendar-event"></i>
-                                </div>
-                                <div>
-                                    <h5 class="mb-0 fw-bold">Event Configuration</h5>
-                                    <small class="text-white-50">Configure attendance schedules and fine
-                                        policies</small>
-                                </div>
-                            </div>
-                            <div class="text-end">
-                                <small class="text-white-50 d-block">Created by</small>
-                                <span
-                                    class="fw-semibold"><?php echo htmlspecialchars($_SESSION['officer_name'] ?? 'Officer'); ?></span>
-                            </div>
-                        </div>
-
-                        <div class="card-body p-4">
-                            <?php if ($msg !== ''): ?>
-                            <div class="custom-alert alert-<?php echo $msg_type; ?> mb-4 animate-in">
-                                <i
-                                    class="bi bi-<?php echo $msg_type === 'success' ? 'check-circle-fill' : 'exclamation-triangle-fill'; ?> fs-4"></i>
-                                <div>
-                                    <strong><?php echo $msg_type === 'success' ? 'Success!' : 'Error!'; ?></strong>
-                                    <span class="d-block small"><?php echo htmlspecialchars($msg); ?></span>
-                                </div>
-                            </div>
-                            <?php endif; ?>
-
-                            <form method="POST" id="eventForm" novalidate>
-                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-
-                                <!-- Event Details Section -->
-                                <div class="form-section animate-in delay-1">
-                                    <div class="section-header">
-                                        <div class="section-icon info">
-                                            <i class="bi bi-info-circle"></i>
-                                        </div>
-                                        <h4 class="section-title">Event Information</h4>
-                                    </div>
-
-                                    <div class="mb-4">
-                                        <label class="form-label">Event Name <span class="text-danger">*</span></label>
-                                        <input type="text" name="event_name" class="form-control form-control-lg"
-                                            placeholder="e.g., Annual Sports Day 2024" required
-                                            value="<?php echo htmlspecialchars($defaults['event_name']); ?>">
-                                    </div>
-
-                                    <div class="row">
-                                        <div class="col-md-6 mb-3">
-                                            <label class="form-label">Event Date <span
-                                                    class="text-danger">*</span></label>
-                                            <input type="date" name="event_date" class="form-control" required
-                                                value="<?php echo htmlspecialchars($defaults['event_date']); ?>">
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label class="form-label">Event Type <span
-                                                    class="text-danger">*</span></label>
-                                            <select name="event_type" id="eventType" class="form-select" required>
-                                                <option value="whole_day"
-                                                    <?php echo $defaults['event_type'] === 'whole_day' ? 'selected' : ''; ?>>
-                                                    Whole Day</option>
-                                                <option value="half_day"
-                                                    <?php echo $defaults['event_type'] === 'half_day' ? 'selected' : ''; ?>>
-                                                    Half Day</option>
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <!-- Location Field -->
-                                    <div class="mb-3">
-                                        <label class="form-label">Location</label>
-                                        <div class="input-group">
-                                            <span class="input-group-text"><i class="bi bi-geo-alt"></i></span>
-                                            <input type="text" name="location" class="form-control"
-                                                placeholder="e.g., Main Auditorium, Building A"
-                                                value="<?php echo htmlspecialchars($defaults['location']); ?>">
-                                        </div>
-                                    </div>
-
-                                    <!-- Description Field -->
-                                    <div class="mb-3">
-                                        <label class="form-label">Description</label>
-                                        <textarea name="description" class="form-control" rows="3"
-                                            placeholder="Enter event description, agenda, or additional notes..."><?php echo htmlspecialchars($defaults['description']); ?></textarea>
-                                    </div>
-
-                                    <!-- Half Day Period Selection -->
-                                    <div id="periodContainer" class="mt-3"
-                                        style="<?php echo $defaults['event_type'] === 'half_day' ? 'display: block;' : 'display: none;'; ?>">
-                                        <label class="form-label">Select Period <span
-                                                class="text-danger">*</span></label>
-                                        <div class="period-grid">
-                                            <label
-                                                class="period-option am <?php echo $defaults['half_day_period'] === 'am' ? 'active' : ''; ?>">
-                                                <input type="radio" name="half_day_period" value="am"
-                                                    <?php echo $defaults['half_day_period'] === 'am' ? 'checked' : ''; ?>>
-                                                <div class="period-icon"><i class="bi bi-sunrise"></i></div>
-                                                <div class="period-title">Morning Session</div>
-                                                <div class="period-time">6:00 AM - 12:00 PM</div>
-                                            </label>
-                                            <label
-                                                class="period-option pm <?php echo $defaults['half_day_period'] === 'pm' ? 'active' : ''; ?>">
-                                                <input type="radio" name="half_day_period" value="pm"
-                                                    <?php echo $defaults['half_day_period'] === 'pm' ? 'checked' : ''; ?>>
-                                                <div class="period-icon"><i class="bi bi-sunset"></i></div>
-                                                <div class="period-title">Afternoon Session</div>
-                                                <div class="period-time">12:00 PM - 6:00 PM</div>
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- AM Section -->
-                                <div id="amSection"
-                                    class="form-section attendance-section animate-in delay-2 position-relative">
-                                    <div class="section-header">
-                                        <div class="section-icon am">
-                                            <i class="bi bi-sunrise"></i>
-                                        </div>
-                                        <div class="flex-grow-1">
-                                            <h4 class="section-title">Morning (AM) Schedule</h4>
-                                        </div>
-                                        <span id="amStatus" class="status-badge active">Active</span>
-                                    </div>
-
-                                    <div class="time-grid mb-3">
-                                        <div class="time-input-wrapper">
-                                            <label class="form-label small text-muted mb-2">Login Start</label>
-                                            <input type="time" name="am_login_start" class="form-control am-input"
-                                                value="<?php echo htmlspecialchars($defaults['am_login_start']); ?>"
-                                                required>
-                                        </div>
-                                        <div class="time-input-wrapper">
-                                            <label class="form-label small text-muted mb-2">Login End</label>
-                                            <input type="time" name="am_login_end" class="form-control am-input"
-                                                value="<?php echo htmlspecialchars($defaults['am_login_end']); ?>"
-                                                required>
-                                        </div>
-                                    </div>
-
-                                    <div class="time-grid mb-4">
-                                        <div class="time-input-wrapper">
-                                            <label class="form-label small text-muted mb-2">Logout Start</label>
-                                            <input type="time" name="am_logout_start" class="form-control am-input"
-                                                value="<?php echo htmlspecialchars($defaults['am_logout_start']); ?>"
-                                                required>
-                                        </div>
-                                        <div class="time-input-wrapper">
-                                            <label class="form-label small text-muted mb-2">Logout End</label>
-                                            <input type="time" name="am_logout_end" class="form-control am-input"
-                                                value="<?php echo htmlspecialchars($defaults['am_logout_end']); ?>"
-                                                required>
-                                        </div>
-                                    </div>
-
-                                    <div class="row">
-                                        <div class="col-md-6 mb-3">
-                                            <label class="form-label">Miss Login Fine ($)</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text">$</span>
-                                                <input type="number" step="0.01" name="miss_am_login"
-                                                    class="form-control am-input"
-                                                    value="<?php echo htmlspecialchars($defaults['miss_am_login']); ?>"
-                                                    required>
-                                            </div>
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label class="form-label">Miss Logout Fine ($)</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text">$</span>
-                                                <input type="number" step="0.01" name="miss_am_logout"
-                                                    class="form-control am-input"
-                                                    value="<?php echo htmlspecialchars($defaults['miss_am_logout']); ?>"
-                                                    required>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- PM Section -->
-                                <div id="pmSection"
-                                    class="form-section attendance-section animate-in delay-3 position-relative">
-                                    <div class="section-header">
-                                        <div class="section-icon pm">
-                                            <i class="bi bi-sunset"></i>
-                                        </div>
-                                        <div class="flex-grow-1">
-                                            <h4 class="section-title">Afternoon (PM) Schedule</h4>
-                                        </div>
-                                        <span id="pmStatus" class="status-badge active">Active</span>
-                                    </div>
-
-                                    <div class="time-grid mb-3">
-                                        <div class="time-input-wrapper">
-                                            <label class="form-label small text-muted mb-2">Login Start</label>
-                                            <input type="time" name="pm_login_start" class="form-control pm-input"
-                                                value="<?php echo htmlspecialchars($defaults['pm_login_start']); ?>">
-                                        </div>
-                                        <div class="time-input-wrapper">
-                                            <label class="form-label small text-muted mb-2">Login End</label>
-                                            <input type="time" name="pm_login_end" class="form-control pm-input"
-                                                value="<?php echo htmlspecialchars($defaults['pm_login_end']); ?>">
-                                        </div>
-                                    </div>
-
-                                    <div class="time-grid mb-4">
-                                        <div class="time-input-wrapper">
-                                            <label class="form-label small text-muted mb-2">Logout Start</label>
-                                            <input type="time" name="pm_logout_start" class="form-control pm-input"
-                                                value="<?php echo htmlspecialchars($defaults['pm_logout_start']); ?>">
-                                        </div>
-                                        <div class="time-input-wrapper">
-                                            <label class="form-label small text-muted mb-2">Logout End</label>
-                                            <input type="time" name="pm_logout_end" class="form-control pm-input"
-                                                value="<?php echo htmlspecialchars($defaults['pm_logout_end']); ?>">
-                                        </div>
-                                    </div>
-
-                                    <div class="row">
-                                        <div class="col-md-6 mb-3">
-                                            <label class="form-label">Miss Login Fine ($)</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text">$</span>
-                                                <input type="number" step="0.01" name="miss_pm_login"
-                                                    class="form-control pm-input"
-                                                    value="<?php echo htmlspecialchars($defaults['miss_pm_login']); ?>">
-                                            </div>
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label class="form-label">Miss Logout Fine ($)</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text">$</span>
-                                                <input type="number" step="0.01" name="miss_pm_logout"
-                                                    class="form-control pm-input"
-                                                    value="<?php echo htmlspecialchars($defaults['miss_pm_logout']); ?>">
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Action Buttons -->
-                                <div class="d-flex gap-3 mt-4">
-                                    <button type="submit" class="btn btn-create flex-grow-1">
-                                        <i class="bi bi-check-lg me-2"></i>Create Event
-                                    </button>
-                                    <a href="manage_event.php" class="btn btn-cancel">
-                                        <i class="bi bi-x-lg me-2"></i>Cancel
-                                    </a>
-                                </div>
-                            </form>
-                        </div>
+        <div class="main-card animate-in">
+            <!-- Card Header -->
+            <div class="card-header-custom">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="header-icon">
+                        <i class="bi bi-calendar-event"></i>
+                    </div>
+                    <div>
+                        <h5 class="mb-0 fw-bold">Event Configuration</h5>
+                        <small class="text-white-50">Configure attendance schedules and fine
+                            policies</small>
                     </div>
                 </div>
+                <div class="text-end">
+                    <small class="text-white-50 d-block">Created by</small>
+                    <span
+                        class="fw-semibold"><?php echo htmlspecialchars($_SESSION['officer_name'] ?? 'Officer'); ?></span>
+                </div>
+            </div>
+
+            <div class="card-body p-4">
+                <?php if ($msg !== ''): ?>
+                <div class="custom-alert alert-<?php echo $msg_type; ?> mb-4 animate-in">
+                    <i
+                        class="bi bi-<?php echo $msg_type === 'success' ? 'check-circle-fill' : 'exclamation-triangle-fill'; ?> fs-4"></i>
+                    <div>
+                        <strong><?php echo $msg_type === 'success' ? 'Success!' : 'Error!'; ?></strong>
+                        <span class="d-block small"><?php echo htmlspecialchars($msg); ?></span>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+                <form method="POST" id="eventForm" novalidate>
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+
+                    <!-- Event Details Section -->
+                    <div class="form-section animate-in delay-1">
+                        <div class="section-header">
+                            <div class="section-icon info">
+                                <i class="bi bi-info-circle"></i>
+                            </div>
+                            <h4 class="section-title">Event Information</h4>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label">Event Name <span class="text-danger">*</span></label>
+                            <input type="text" name="event_name" class="form-control form-control-lg"
+                                placeholder="e.g., Annual Sports Day 2024" required
+                                value="<?php echo htmlspecialchars($defaults['event_name']); ?>">
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Event Date <span class="text-danger">*</span></label>
+                                <input type="date" name="event_date" class="form-control" required
+                                    value="<?php echo htmlspecialchars($defaults['event_date']); ?>">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Event Type <span class="text-danger">*</span></label>
+                                <select name="event_type" id="eventType" class="form-select" required>
+                                    <option value="whole_day"
+                                        <?php echo $defaults['event_type'] === 'whole_day' ? 'selected' : ''; ?>>
+                                        Whole Day</option>
+                                    <option value="half_day"
+                                        <?php echo $defaults['event_type'] === 'half_day' ? 'selected' : ''; ?>>
+                                        Half Day</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Location Field -->
+                        <div class="mb-3">
+                            <label class="form-label">Location</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-geo-alt"></i></span>
+                                <input type="text" name="location" class="form-control"
+                                    placeholder="e.g., Main Auditorium, Building A"
+                                    value="<?php echo htmlspecialchars($defaults['location']); ?>">
+                            </div>
+                        </div>
+
+                        <!-- Description Field -->
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea name="description" class="form-control" rows="3"
+                                placeholder="Enter event description, agenda, or additional notes..."><?php echo htmlspecialchars($defaults['description']); ?></textarea>
+                        </div>
+
+                        <!-- Half Day Period Selection -->
+                        <div id="periodContainer" class="mt-3"
+                            style="<?php echo $defaults['event_type'] === 'half_day' ? 'display: block;' : 'display: none;'; ?>">
+                            <label class="form-label">Select Period <span class="text-danger">*</span></label>
+                            <div class="period-grid">
+                                <label
+                                    class="period-option am <?php echo $defaults['half_day_period'] === 'am' ? 'active' : ''; ?>">
+                                    <input type="radio" name="half_day_period" value="am"
+                                        <?php echo $defaults['half_day_period'] === 'am' ? 'checked' : ''; ?>>
+                                    <div class="period-icon"><i class="bi bi-sunrise"></i></div>
+                                    <div class="period-title">Morning Session</div>
+                                    <div class="period-time">6:00 AM - 12:00 PM</div>
+                                </label>
+                                <label
+                                    class="period-option pm <?php echo $defaults['half_day_period'] === 'pm' ? 'active' : ''; ?>">
+                                    <input type="radio" name="half_day_period" value="pm"
+                                        <?php echo $defaults['half_day_period'] === 'pm' ? 'checked' : ''; ?>>
+                                    <div class="period-icon"><i class="bi bi-sunset"></i></div>
+                                    <div class="period-title">Afternoon Session</div>
+                                    <div class="period-time">12:00 PM - 6:00 PM</div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AM Section -->
+                    <div id="amSection" class="form-section attendance-section animate-in delay-2 position-relative">
+                        <div class="section-header">
+                            <div class="section-icon am">
+                                <i class="bi bi-sunrise"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h4 class="section-title">Morning (AM) Schedule</h4>
+                            </div>
+                            <span id="amStatus" class="status-badge active">Active</span>
+                        </div>
+
+                        <div class="time-grid mb-3">
+                            <div class="time-input-wrapper">
+                                <label class="form-label small text-muted mb-2">Login Start</label>
+                                <input type="time" name="am_login_start" class="form-control am-input"
+                                    value="<?php echo htmlspecialchars($defaults['am_login_start']); ?>" required>
+                            </div>
+                            <div class="time-input-wrapper">
+                                <label class="form-label small text-muted mb-2">Login End</label>
+                                <input type="time" name="am_login_end" class="form-control am-input"
+                                    value="<?php echo htmlspecialchars($defaults['am_login_end']); ?>" required>
+                            </div>
+                        </div>
+
+                        <div class="time-grid mb-4">
+                            <div class="time-input-wrapper">
+                                <label class="form-label small text-muted mb-2">Logout Start</label>
+                                <input type="time" name="am_logout_start" class="form-control am-input"
+                                    value="<?php echo htmlspecialchars($defaults['am_logout_start']); ?>" required>
+                            </div>
+                            <div class="time-input-wrapper">
+                                <label class="form-label small text-muted mb-2">Logout End</label>
+                                <input type="time" name="am_logout_end" class="form-control am-input"
+                                    value="<?php echo htmlspecialchars($defaults['am_logout_end']); ?>" required>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Miss Login Fine ($)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" step="0.01" name="miss_am_login" class="form-control am-input"
+                                        value="<?php echo htmlspecialchars($defaults['miss_am_login']); ?>" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Miss Logout Fine ($)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" step="0.01" name="miss_am_logout" class="form-control am-input"
+                                        value="<?php echo htmlspecialchars($defaults['miss_am_logout']); ?>" required>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PM Section -->
+                    <div id="pmSection" class="form-section attendance-section animate-in delay-3 position-relative">
+                        <div class="section-header">
+                            <div class="section-icon pm">
+                                <i class="bi bi-sunset"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h4 class="section-title">Afternoon (PM) Schedule</h4>
+                            </div>
+                            <span id="pmStatus" class="status-badge active">Active</span>
+                        </div>
+
+                        <div class="time-grid mb-3">
+                            <div class="time-input-wrapper">
+                                <label class="form-label small text-muted mb-2">Login Start</label>
+                                <input type="time" name="pm_login_start" class="form-control pm-input"
+                                    value="<?php echo htmlspecialchars($defaults['pm_login_start']); ?>">
+                            </div>
+                            <div class="time-input-wrapper">
+                                <label class="form-label small text-muted mb-2">Login End</label>
+                                <input type="time" name="pm_login_end" class="form-control pm-input"
+                                    value="<?php echo htmlspecialchars($defaults['pm_login_end']); ?>">
+                            </div>
+                        </div>
+
+                        <div class="time-grid mb-4">
+                            <div class="time-input-wrapper">
+                                <label class="form-label small text-muted mb-2">Logout Start</label>
+                                <input type="time" name="pm_logout_start" class="form-control pm-input"
+                                    value="<?php echo htmlspecialchars($defaults['pm_logout_start']); ?>">
+                            </div>
+                            <div class="time-input-wrapper">
+                                <label class="form-label small text-muted mb-2">Logout End</label>
+                                <input type="time" name="pm_logout_end" class="form-control pm-input"
+                                    value="<?php echo htmlspecialchars($defaults['pm_logout_end']); ?>">
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Miss Login Fine ($)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" step="0.01" name="miss_pm_login" class="form-control pm-input"
+                                        value="<?php echo htmlspecialchars($defaults['miss_pm_login']); ?>">
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Miss Logout Fine ($)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" step="0.01" name="miss_pm_logout" class="form-control pm-input"
+                                        value="<?php echo htmlspecialchars($defaults['miss_pm_logout']); ?>">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="d-flex gap-3 mt-4">
+                        <button type="submit" class="btn btn-create flex-grow-1">
+                            <i class="bi bi-check-lg me-2"></i>Create Event
+                        </button>
+                        <a href="manage_event.php" class="btn btn-cancel">
+                            <i class="bi bi-x-lg me-2"></i>Cancel
+                        </a>
+                    </div>
+                </form>
             </div>
         </div>
+    </div>
+    </div>
+    </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>

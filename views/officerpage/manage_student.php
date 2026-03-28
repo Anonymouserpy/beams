@@ -287,10 +287,18 @@ require "../sidebar/officer_sidebar.php";
     }
 
     .main-contents {
-        margin-left: var(--sidebar-width, 250px);
-        transition: margin-left 0.3s ease;
-        padding: 20px;
+        margin-left: 220px;
+        padding: 30px;
+        transition: var(--transition);
     }
+
+    @media (max-width: 992px) {
+        .main-contents {
+            margin-left: 0;
+            padding: 20px;
+        }
+    }
+
 
 
     /* Main content wrapper - adjust based on your sidebar's layout */

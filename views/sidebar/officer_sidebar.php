@@ -8,6 +8,26 @@ if (!isset($_SESSION['officer_id'])) {
     header("Location: ../../Login.php");
     exit();
 }
+
+// Ensure we always have the officer's full name and position in the session
+// (Fetches from database if missing)
+require __DIR__ . '/../../Connection/connection.php'; // adjust path if needed
+
+if (!isset($_SESSION['officer_name']) || !isset($_SESSION['position'])) {
+    $stmt = $conn->prepare("SELECT full_name, position FROM officers WHERE officer_id = ?");
+    $stmt->bind_param("s", $_SESSION['officer_id']);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($row = $result->fetch_assoc()) {
+        $_SESSION['officer_name'] = $row['full_name'];
+        $_SESSION['position'] = $row['position'];
+    }
+    $stmt->close();
+}
+
+// Set variables for easy use
+$officerName = $_SESSION['officer_name'] ?? 'Officer';
+$officerPosition = $_SESSION['position'] ?? 'Officer';
 ?>
 <!-- SIDEBAR -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -15,6 +35,7 @@ if (!isset($_SESSION['officer_id'])) {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
+/* All previous CSS remains exactly as before – unchanged */
 :root {
     --sidebar-width: 220px;
     --beams-primary-blue: #33A1E0;
@@ -228,9 +249,6 @@ body {
 
 /* User Mini Profile */
 .beams-user-mini {
-    display: flex;
-    align-items: center;
-    gap: 12px;
     padding: 0.875rem;
     margin: 0.5rem 1rem 1rem;
     background: rgba(255, 255, 255, 0.05);
@@ -239,8 +257,8 @@ body {
 }
 
 .beams-user-avatar {
-    width: 40px;
-    height: 40px;
+    width: 48px;
+    height: 48px;
     background: linear-gradient(135deg, var(--beams-primary-blue), #2563eb);
     border-radius: 50%;
     display: flex;
@@ -248,34 +266,57 @@ body {
     justify-content: center;
     font-weight: 600;
     color: white;
-    font-size: 0.9rem;
+    font-size: 1.2rem;
     flex-shrink: 0;
+    margin-bottom: 0.5rem;
 }
 
 .beams-user-info {
-    flex: 1;
-    min-width: 0;
+    margin-top: 0.5rem;
 }
 
 .beams-user-name {
     color: white;
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: 1rem;
     margin: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.beams-user-name i {
+    font-size: 0.9rem;
+    color: var(--beams-text-muted);
 }
 
 .beams-user-role {
     color: var(--beams-text-muted);
+    font-size: 0.8rem;
+    margin: 4px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.beams-user-role i {
     font-size: 0.75rem;
-    margin: 0;
+}
+
+.beams-user-role.admin {
+    color: #ffd966;
+}
+
+.beams-user-role.officer {
+    color: var(--beams-text-muted);
 }
 
 /* Main Content Adjustment */
 .beams-main-content {
-    margin-left: var(--beams-sidebar-width);
+    margin-left: var(--sidebar-width);
     padding: 2rem;
     min-height: 100vh;
 }
@@ -344,15 +385,20 @@ body {
     </div>
 
     <!-- User Mini Profile -->
-    <div class="beams-user-mini">
-        <div class="beams-user-avatar">
-            <?php echo isset($_SESSION['officer_name']) ? strtoupper(substr($_SESSION['officer_name'], 0, 2)) : 'OF'; ?>
+    <div class="beams-user-mini text-center">
+        <div class="beams-user-avatar mx-auto">
+            <?php echo strtoupper(substr($officerName, 0, 2)); ?>
         </div>
-        <div class="beams-user-info">
-            <p class="beams-user-name">
-                <?php echo isset($_SESSION['officer_name']) ? htmlspecialchars($_SESSION['officer_name']) : 'Officer'; ?>
-            </p>
-            <p class="beams-user-role">System Officer</p>
+        <div class="beams-user-info text-center">
+            <div class="beams-user-name">
+                <i class="fas fa-user-circle"></i> <?php echo htmlspecialchars($officerName); ?>
+            </div>
+            <div class="beams-user-role <?php echo $officerPosition === 'Admin' ? 'admin' : 'officer'; ?>">
+                <?php 
+                $icon = $officerPosition === 'Admin' ? '<i class="fas fa-crown"></i>' : '<i class="fas fa-user-check"></i>';
+                echo $icon . ' ' . htmlspecialchars($officerPosition);
+                ?>
+            </div>
         </div>
     </div>
 
@@ -389,14 +435,7 @@ body {
                 </a>
             </li>
         </ul>
-
         <ul class="beams-nav-list">
-            <li class="beams-nav-item">
-                <a href="../officerpage/officer_register.php" class="beams-nav-link">
-                    <i class="fas fa-user-plus"></i>
-                    <span>Register Officer</span>
-                </a>
-            </li>
             <li class="beams-nav-item">
                 <a href="../officerpage/manage_fines.php" class="beams-nav-link">
                     <i class="fas fa-money-bill-wave"></i>
@@ -404,6 +443,29 @@ body {
                 </a>
             </li>
         </ul>
+
+        <!-- Admin-only section -->
+        <?php if ($officerPosition === 'Admin'): ?>
+        <div class="beams-nav-section-title">Administration</div>
+        <ul class="beams-nav-list">
+            <li class="beams-nav-item">
+                <a href="../officerpage/manage_officer.php"
+                    class="beams-nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'manage_officer.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-user-tie"></i>
+                    <span>Manage Officers</span>
+                </a>
+            </li>
+            <li class="beams-nav-item">
+                <a href="../officerpage/officer_registration.php"
+                    class="beams-nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'officer_registration.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-user-plus"></i>
+                    <span>Register Officer</span>
+                </a>
+            </li>
+        </ul>
+        <?php endif; ?>
+
+
     </div>
 
     <!-- Footer / Logout -->
