@@ -50,7 +50,6 @@ include('Includes/header.php');
 
             <a href="index.php" class="text-center mt-1 mb-3">Go Back</a>
 
-
         </div>
     </div>
 

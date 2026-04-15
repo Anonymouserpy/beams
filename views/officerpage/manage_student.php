@@ -1516,7 +1516,7 @@ require "../sidebar/officer_sidebar.php";
                         <div class="mb-3">
                             <label class="form-label">Student ID</label>
                             <input type="text" class="form-control" name="student_id" id="student_id" required
-                                placeholder="e.g., 11">
+                                placeholder="e.g., 11-1111-111">
                         </div>
 
                         <div class="mb-3">

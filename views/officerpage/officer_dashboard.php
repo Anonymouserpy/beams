@@ -757,7 +757,7 @@ $upcoming = $conn->query("
                     <div class="action-icon"><i class="bi bi-clipboard-data"></i></div>
                     <span class="action-label">View Events</span>
                 </a>
-                <a href="fine_management.php" class="action-btn">
+                <a href="manage_fines.php" class="action-btn">
                     <div class="action-icon"><i class="bi bi-cash-stack"></i></div>
                     <span class="action-label">Manage Fines</span>
                 </a>

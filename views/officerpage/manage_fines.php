@@ -188,6 +188,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     jsonResponse('error', 'Invalid action.');
 }
 
+// --- GET endpoint: fetch fines for a student (for the Manage Fines modal) ---
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['action'] === 'get_student_fines') {
+    $student_id = trim($_GET['student_id'] ?? '');
+    if (empty($student_id)) {
+        jsonResponse('error', 'Student ID required.');
+    }
+
+    $stmt = $conn->prepare("
+        SELECT f.fine_id, f.fine_reason, f.amount, f.status, e.event_name
+        FROM student_fines f
+        LEFT JOIN events e ON f.event_id = e.event_id
+        WHERE f.student_id = ?
+        ORDER BY f.fine_id DESC
+    ");
+    $stmt->bind_param("s", $student_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $fines = $result->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    jsonResponse('success', '', ['fines' => $fines]);
+}
+
 // --- For GET requests, include sidebar and display the page ---
 include "../sidebar/officer_sidebar.php";
 
@@ -195,7 +218,6 @@ include "../sidebar/officer_sidebar.php";
 $filter_status = isset($_GET['status']) ? $_GET['status'] : '';
 
 // Fetch aggregated student data:
-// total amount, total count, paid count, unpaid count, and unpaid total
 $query = "
     SELECT 
         sf.student_id,
@@ -209,10 +231,8 @@ $query = "
     LEFT JOIN students s ON sf.student_id = s.student_id
 ";
 if ($filter_status === 'unpaid') {
-    // Show only students who have at least one unpaid fine
     $query .= " GROUP BY sf.student_id HAVING unpaid_count > 0";
 } elseif ($filter_status === 'paid') {
-    // Show only students who have no unpaid fines (all paid)
     $query .= " GROUP BY sf.student_id HAVING unpaid_count = 0";
 } else {
     $query .= " GROUP BY sf.student_id";
@@ -221,24 +241,12 @@ $query .= " ORDER BY s.full_name ASC";
 $result = $conn->query($query);
 $students_agg = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 
-// Compute totals for the stats cards
 $total_fines = array_sum(array_column($students_agg, 'total_fines'));
 $total_amount = array_sum(array_column($students_agg, 'total_amount'));
 $unpaid_count = array_sum(array_column($students_agg, 'unpaid_count'));
 $unpaid_amount = array_sum(array_column($students_agg, 'unpaid_total'));
 
-// Build unpaid summary array (used for the Pay All button)
-$unpaid_summary = [];
-foreach ($students_agg as $student) {
-    if ($student['unpaid_total'] > 0) {
-        $unpaid_summary[$student['student_id']] = [
-            'unpaid_count' => $student['unpaid_count'],
-            'unpaid_total' => $student['unpaid_total']
-        ];
-    }
-}
-
-// Fetch students for dropdown (for add/edit modals)
+// Fetch students for dropdown
 $students = [];
 $stu_res = $conn->query("SELECT student_id, full_name AS name FROM students ORDER BY full_name");
 if ($stu_res) {
@@ -259,14 +267,10 @@ if ($ev_res) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= $config['app_name'] ?></title>
-    <!-- Bootstrap 5.3.2 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <!-- Google Font (Inter) -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet">
     <style>
-    /* Your existing styles – unchanged */
     :root {
         --primary: #2563eb;
         --primary-dark: #1d4ed8;
@@ -300,8 +304,6 @@ if ($ev_res) {
         }
     }
 
-
-    /* Stats cards */
     .stats-card {
         background: white;
         border-radius: 1.5rem;
@@ -325,7 +327,6 @@ if ($ev_res) {
         font-size: 1.8rem;
     }
 
-    /* Badges */
     .badge-paid {
         background: #dcfce7;
         color: #166534;
@@ -348,20 +349,6 @@ if ($ev_res) {
         display: inline-flex;
         align-items: center;
         gap: 0.3rem;
-    }
-
-    /* Buttons */
-    .btn-icon {
-        padding: 0.35rem 0.7rem;
-        border-radius: 0.75rem;
-        font-size: 0.85rem;
-        transition: all 0.15s;
-        border: 1px solid transparent;
-    }
-
-    .btn-icon:hover {
-        transform: translateY(-2px);
-        filter: brightness(0.95);
     }
 
     .filter-btn {
@@ -388,7 +375,6 @@ if ($ev_res) {
         border-color: var(--primary);
     }
 
-    /* Pay-all button */
     .pay-all-btn {
         background: linear-gradient(145deg, #16a34a, #15803d);
         border: none;
@@ -408,7 +394,24 @@ if ($ev_res) {
         color: white;
     }
 
-    /* Main table */
+    .manage-btn {
+        background: var(--primary);
+        border: none;
+        color: white;
+        padding: 0.45rem 1.2rem;
+        border-radius: 2rem;
+        font-weight: 500;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+
+    .manage-btn:hover {
+        background: var(--primary-dark);
+        transform: scale(1.02);
+        color: white;
+    }
+
     .fines-table {
         background: white;
         border-radius: 1.5rem;
@@ -442,7 +445,6 @@ if ($ev_res) {
         border-bottom: none;
     }
 
-    /* Modals */
     .modal-content {
         border-radius: 2rem;
         border: none;
@@ -479,7 +481,6 @@ if ($ev_res) {
         box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
     }
 
-    /* Alerts */
     .alert {
         border-radius: 1.2rem;
         border: none;
@@ -488,7 +489,6 @@ if ($ev_res) {
         box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
     }
 
-    /* Loading spinner */
     .spinner-border {
         width: 1.2rem;
         height: 1.2rem;
@@ -503,11 +503,65 @@ if ($ev_res) {
         display: none;
     }
 
-    /* Responsive table */
     @media (max-width: 992px) {
         .fines-table {
             overflow-x: auto;
         }
+    }
+
+    .search-group {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .search-input {
+        border-radius: 2rem;
+        padding: 0.6rem 1.2rem;
+        border: 1px solid var(--gray-200);
+        width: 260px;
+        font-size: 0.9rem;
+    }
+
+    .search-input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .search-btn {
+        border-radius: 2rem;
+        padding: 0.6rem 1.2rem;
+        background: var(--primary);
+        border: none;
+        color: white;
+        transition: 0.2s;
+    }
+
+    .search-btn:hover {
+        background: var(--primary-dark);
+        transform: scale(0.98);
+    }
+
+    .delete-fine-btn {
+        background: #fee2e2;
+        border: none;
+        color: #991b1b;
+        border-radius: 2rem;
+        padding: 0.3rem 0.8rem;
+        transition: 0.2s;
+    }
+
+    .delete-fine-btn:hover {
+        background: #dc2626;
+        color: white;
+        transform: scale(1.02);
+    }
+
+    .no-results {
+        display: none;
+        text-align: center;
+        padding: 1rem;
+        color: var(--gray-600);
     }
     </style>
 </head>
@@ -531,7 +585,7 @@ if ($ev_res) {
             <div class="alert alert-success" id="successAlert" role="alert" style="display: none;"></div>
             <div class="alert alert-danger" id="errorAlert" role="alert" style="display: none;"></div>
 
-            <!-- Stats Cards: Four cards as in your image -->
+            <!-- Stats Cards -->
             <div class="row g-4 mb-5">
                 <div class="col-sm-6 col-lg-3">
                     <div class="stats-card d-flex align-items-center">
@@ -581,22 +635,28 @@ if ($ev_res) {
                 </div>
             </div>
 
-            <!-- Filter Bar -->
-            <div class="d-flex flex-wrap gap-2 mb-4">
-                <a href="?status=" class="filter-btn <?= $filter_status == '' ? 'active' : '' ?>">
-                    <i class="bi bi-list-ul me-2"></i>All
-                </a>
-                <a href="?status=unpaid" class="filter-btn <?= $filter_status == 'unpaid' ? 'active' : '' ?>">
-                    <i class="bi bi-exclamation-triangle me-2"></i>Unpaid
-                </a>
-                <a href="?status=paid" class="filter-btn <?= $filter_status == 'paid' ? 'active' : '' ?>">
-                    <i class="bi bi-check-circle me-2"></i>Paid
-                </a>
-                <?php if ($filter_status): ?>
-                <a href="?" class="filter-btn">
-                    <i class="bi bi-x-circle me-2"></i>Clear Filters
-                </a>
-                <?php endif; ?>
+            <!-- Filter Bar + Search -->
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="?status=" class="filter-btn <?= $filter_status == '' ? 'active' : '' ?>">
+                        <i class="bi bi-list-ul me-2"></i>All
+                    </a>
+                    <a href="?status=unpaid" class="filter-btn <?= $filter_status == 'unpaid' ? 'active' : '' ?>">
+                        <i class="bi bi-exclamation-triangle me-2"></i>Unpaid
+                    </a>
+                    <a href="?status=paid" class="filter-btn <?= $filter_status == 'paid' ? 'active' : '' ?>">
+                        <i class="bi bi-check-circle me-2"></i>Paid
+                    </a>
+                    <?php if ($filter_status): ?>
+                    <a href="?" class="filter-btn">
+                        <i class="bi bi-x-circle me-2"></i>Clear Filters
+                    </a>
+                    <?php endif; ?>
+                </div>
+                <div class="search-group">
+                    <input type="text" id="searchStudent" class="search-input" placeholder="Search by student name...">
+                    <button id="searchBtn" class="search-btn"><i class="bi bi-search"></i> Search</button>
+                </div>
             </div>
 
             <!-- Main Table -->
@@ -604,7 +664,7 @@ if ($ev_res) {
             <div class="alert alert-info py-4 text-center">No fines found.</div>
             <?php else: ?>
             <div class="fines-table">
-                <table class="table align-middle">
+                <table class="table align-middle" id="finesTable">
                     <thead>
                         <tr>
                             <th>Student</th>
@@ -623,34 +683,40 @@ if ($ev_res) {
                                 ? '<span class="badge-paid"><i class="bi bi-check-circle-fill"></i> Paid</span>'
                                 : '<span class="badge-unpaid"><i class="bi bi-exclamation-circle-fill"></i> Unpaid</span>';
                         ?>
-                        <tr id="student-row-<?= $student_id_esc ?>">
-                            <td class="student-name align-middle"><?= $student_name_esc ?></td>
+                        <tr data-student-id="<?= $student_id_esc ?>"
+                            data-student-name="<?= strtolower($student_name_esc) ?>">
+                            <td class="student-name"><?= $student_name_esc ?></td>
                             <td>Absent Event</td>
                             <td class="fw-semibold">
                                 <?= $config['currency'] ?><?= number_format($student['total_amount'], 2) ?>
                             </td>
                             <td><?= $status_badge ?></td>
                             <td>
-                                <?php if ($student['unpaid_count'] > 0): ?>
-                                <button class="btn pay-all-btn" data-student="<?= $student_id_esc ?>"
-                                    title="Pay all unpaid fines for this student">
-                                    <i class="bi bi-cash me-1"></i> Pay All
-                                    <?= $config['currency'] ?><?= number_format($student['unpaid_total'], 2) ?>
-                                </button>
-                                <?php else: ?>
-                                <span class="text-muted small">All paid</span>
-                                <?php endif; ?>
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <?php if ($student['unpaid_count'] > 0): ?>
+                                    <button class="btn pay-all-btn" data-student="<?= $student_id_esc ?>">
+                                        <i class="bi bi-cash me-1"></i> Pay All
+                                        <?= $config['currency'] ?><?= number_format($student['unpaid_total'], 2) ?>
+                                    </button>
+                                    <?php endif; ?>
+                                    <button class="btn manage-btn" data-student-id="<?= $student_id_esc ?>"
+                                        data-student-name="<?= $student_name_esc ?>" data-bs-toggle="modal"
+                                        data-bs-target="#finesModal">
+                                        <i class="bi bi-eye me-1"></i> Manage Fines
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+                <div id="noSearchResults" class="no-results">No matching students found.</div>
             </div>
             <?php endif; ?>
         </div>
     </div>
 
-    <!-- Add Fine Modal (unchanged) -->
+    <!-- Add Fine Modal -->
     <div class="modal fade" id="addFineModal" tabindex="-1" aria-labelledby="addFineModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -715,33 +781,95 @@ if ($ev_res) {
         </div>
     </div>
 
-    <!-- Scripts -->
+    <!-- Manage Fines Modal -->
+    <div class="modal fade" id="finesModal" tabindex="-1" aria-labelledby="finesModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="finesModalLabel">
+                        <i class="bi bi-receipt me-2"></i>Fines for <span id="modalStudentName"></span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="finesLoading" class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2">Loading fines...</p>
+                    </div>
+                    <div id="finesList" style="display: none;">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Event</th>
+                                        <th>Reason</th>
+                                        <th>Amount</th>
+                                        <th>Status</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="finesTableBody"></tbody>
+                            </table>
+                        </div>
+                        <div class="text-muted mt-2 small"><i class="bi bi-info-circle"></i> Click "Delete" to remove a
+                            fine.</div>
+                    </div>
+                    <div id="noFinesMsg" class="alert alert-info text-center" style="display: none;">No fines recorded
+                        for this student.</div>
+                    <div id="errorMsg" class="alert alert-danger text-center" style="display: none;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary rounded-pill px-4"
+                        data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
     $(document).ready(function() {
-        // Show alert function
-        function showAlert(type, message) {
-            let alertBox = type === 'success' ? $('#successAlert') : $('#errorAlert');
-            alertBox.text(message).fadeIn().delay(4000).fadeOut();
+        // ---------- SEARCH FUNCTIONALITY (FIXED) ----------
+        function filterTable() {
+            let searchTerm = $('#searchStudent').val().toLowerCase().trim();
+            let hasVisible = false;
+            $('#finesTable tbody tr').each(function() {
+                // Use attr() to get raw string value (prevents jQuery from auto-converting numbers)
+                let studentName = $(this).attr('data-student-name');
+                if (studentName === undefined || studentName === null) {
+                    studentName = $(this).find('.student-name').text();
+                }
+                studentName = String(studentName).toLowerCase();
+                if (studentName.indexOf(searchTerm) !== -1) {
+                    $(this).show();
+                    hasVisible = true;
+                } else {
+                    $(this).hide();
+                }
+            });
+            if (searchTerm !== '' && !hasVisible) {
+                $('#noSearchResults').show();
+            } else {
+                $('#noSearchResults').hide();
+            }
         }
 
-        // Add Fine
+        $('#searchStudent').on('keyup', filterTable);
+        $('#searchBtn').on('click', filterTable);
+
+        // ---------- ADD FINE ----------
         $('#saveFineBtn').click(function() {
             const btn = $(this);
             const form = $('#addFineForm')[0];
-
             if (!form.checkValidity()) {
                 form.reportValidity();
                 return;
             }
-
             const formData = new FormData(form);
             formData.append('action', 'add');
-
             btn.addClass('btn-loading').prop('disabled', true);
-
             $.ajax({
                 url: window.location.href,
                 type: 'POST',
@@ -766,11 +894,10 @@ if ($ev_res) {
             });
         });
 
-        // Pay All Unpaid for a student
+        // ---------- PAY ALL ----------
         $('.pay-all-btn').click(function() {
             const studentId = $(this).data('student');
             if (!confirm('Mark ALL unpaid fines for this student as paid?')) return;
-
             $.ajax({
                 url: window.location.href,
                 type: 'POST',
@@ -794,8 +921,123 @@ if ($ev_res) {
             });
         });
 
-        // Auto-hide alerts on modal open
-        $('#addFineModal, #editFineModal').on('show.bs.modal', function() {
+        // ---------- MANAGE FINES MODAL (FIXED: use res.fines directly) ----------
+        $('#finesModal').on('show.bs.modal', function(event) {
+            const button = $(event.relatedTarget);
+            const studentId = button.data('student-id');
+            const studentName = button.data('student-name');
+
+            console.log("Opening modal for student ID:", studentId);
+
+            $('#modalStudentName').text(studentName);
+            $('#finesLoading').show();
+            $('#finesList').hide();
+            $('#noFinesMsg').hide();
+            $('#errorMsg').hide();
+
+            $.ajax({
+                url: window.location.href,
+                type: 'GET',
+                data: {
+                    action: 'get_student_fines',
+                    student_id: studentId
+                },
+                dataType: 'json',
+                success: function(res) {
+                    $('#finesLoading').hide();
+                    console.log("Fines response:", res);
+
+                    // PHP returns fines directly as a property of the response object
+                    let fines = res.fines || (res.data && res.data.fines) || [];
+
+                    if (res.status === 'success' && fines.length > 0) {
+                        let tbody = $('#finesTableBody');
+                        tbody.empty();
+                        $.each(fines, function(idx, fine) {
+                            let statusBadge = fine.status === 'paid' ?
+                                '<span class="badge-paid"><i class="bi bi-check-circle-fill"></i> Paid</span>' :
+                                '<span class="badge-unpaid"><i class="bi bi-exclamation-circle-fill"></i> Unpaid</span>';
+                            let eventName = fine.event_name ? escapeHtml(fine
+                                .event_name) : '—';
+                            let row = `
+                                <tr data-fine-id="${fine.fine_id}">
+                                    <td>${eventName}</td>
+                                    <td>${escapeHtml(fine.fine_reason)}</td>
+                                    <td><?= $config['currency'] ?>${parseFloat(fine.amount).toFixed(2)}</td>
+                                    <td>${statusBadge}</td>
+                                    <td>
+                                        <button class="btn delete-fine-btn" data-fine-id="${fine.fine_id}">
+                                            <i class="bi bi-trash"></i> Delete
+                                        </button>
+                                    </td>
+                                </tr>
+                            `;
+                            tbody.append(row);
+                        });
+                        $('#finesList').show();
+                    } else if (res.status === 'success' && fines.length === 0) {
+                        $('#noFinesMsg').show();
+                    } else {
+                        let errMsg = res.message ||
+                            'Failed to load fines. Check console for details.';
+                        $('#errorMsg').text(errMsg).show();
+                        console.error("Error response:", res);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    $('#finesLoading').hide();
+                    let errMsg = 'Network error: ' + status + ' - ' + error +
+                        '. See console for details.';
+                    $('#errorMsg').text(errMsg).show();
+                    console.error("AJAX error details:", xhr.responseText);
+                }
+            });
+        });
+
+        // ---------- DELETE FINE (delegated) ----------
+        $(document).on('click', '.delete-fine-btn', function() {
+            const fineId = $(this).data('fine-id');
+            if (!confirm('Delete this fine permanently?')) return;
+            $.ajax({
+                url: window.location.href,
+                type: 'POST',
+                data: {
+                    action: 'delete',
+                    fine_id: fineId,
+                    csrf_token: '<?= $_SESSION['csrf_token'] ?>'
+                },
+                dataType: 'json',
+                success: function(res) {
+                    if (res.status === 'success') {
+                        showAlert('success', res.message);
+                        $('#finesModal').modal('hide');
+                        setTimeout(() => location.reload(), 800);
+                    } else {
+                        showAlert('error', res.message);
+                    }
+                },
+                error: function() {
+                    showAlert('error', 'Could not delete fine.');
+                }
+            });
+        });
+
+        // Helper functions
+        function showAlert(type, message) {
+            let alertBox = type === 'success' ? $('#successAlert') : $('#errorAlert');
+            alertBox.text(message).fadeIn().delay(4000).fadeOut();
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+        $('#addFineModal, #finesModal').on('show.bs.modal', function() {
             $('.alert').fadeOut();
         });
     });
