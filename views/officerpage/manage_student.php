@@ -27,8 +27,11 @@ function runFinesIfNeeded() {
         error_log("Error generating fines: " . mysqli_error($conn));
     }
 
+<<<<<<< HEAD
     // Update the last run time (optional, for tracking)
     file_put_contents($lastRunFile, date('Y-m-d H:i:s', $currentTime));
+=======
+>>>>>>> 14c6234 (fix)
 }
 runFinesIfNeeded();
 

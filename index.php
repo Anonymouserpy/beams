@@ -53,7 +53,11 @@
         <h2>Select Login Type</h2>
 
         <div class="d-grid gap-3">
+<<<<<<< HEAD
             <a href="StudentLogin.php" class="btn btn-primary btn-lg">
+=======
+            <a href="studentLogin.php" class="btn btn-primary btn-lg">
+>>>>>>> 14c6234 (fix)
                 Student Login
             </a>
 

@@ -26,7 +26,11 @@ include('Includes/Header.php');
 
                     <p class="text-center mt-3 mb-0">
                         Don't have an account?
+<<<<<<< HEAD
                         <a href="Registration.php">Register</a>
+=======
+                        <a href="registration.php">Register</a>
+>>>>>>> 14c6234 (fix)
                     </p>
                 </div>
                 <a href="index.php" class="text-center mt-1 mb-3">Go Back</a>
