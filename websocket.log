@@ -1,0 +1,6 @@
+Database connection failed: could not find driver
+Internal TCP socket listening on 127.0.0.1:8081
+WebSocket server started on port 8080
+New WebSocket connection (51)
+Connection 51 closed
+New WebSocket connection (83)

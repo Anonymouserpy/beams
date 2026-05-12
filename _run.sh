@@ -87,19 +87,28 @@ else
 fi
 
 # === CHECK AND RUN WEBSOCKET SERVER ===
-if [ -f "Websocket-server.php" ]; then
+# Check both current directory and Connection folder
+if [ -f "Connection/websocket_server.php" ]; then
+    WEBSOCKET_PATH="Connection/websocket_server.php"
+    echo -e "${YELLOW}Starting WebSocket Server from Connection folder...${NC}"
+elif [ -f "websocket_server.php" ]; then
+    WEBSOCKET_PATH="websocket_server.php"
     echo -e "${YELLOW}Starting WebSocket Server...${NC}"
+else
+    WEBSOCKET_PATH=""
+    echo -e "${YELLOW}⚠ websocket_server.php not found in current directory or Connection folder${NC}"
+fi
+
+if [ -n "$WEBSOCKET_PATH" ]; then
     if command -v php > /dev/null; then
-        pkill -f "Websocket-server.php" 2>/dev/null
-        php Websocket-server.php > websocket.log 2>&1 &
+        pkill -f "websocket_server.php" 2>/dev/null
+        php "$WEBSOCKET_PATH" > websocket.log 2>&1 &
         echo -e "${GREEN}✓ WebSocket Server started with PID: $!${NC}"
     else
         echo -e "${YELLOW}Using XAMPP PHP...${NC}"
-        /opt/lampp/bin/php Websocket-server.php > websocket.log 2>&1 &
+        /opt/lampp/bin/php "$WEBSOCKET_PATH" > websocket.log 2>&1 &
         echo -e "${GREEN}✓ WebSocket Server started with PID: $!${NC}"
     fi
-else
-    echo -e "${YELLOW}⚠ Websocket-server.php not found${NC}"
 fi
 
 echo ""
