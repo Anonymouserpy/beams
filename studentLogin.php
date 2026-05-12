@@ -1,11 +1,14 @@
-<?php
-include('Includes/Header.php');
 
-?>
 
-<div class="container">
-    <div class="row justify-content-center">
-        <div class="col-md-6 col-lg-4">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Login</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+
+<div class="container d-flex justify-content-center align-items-center" style="min-height: 100vh;">
+    <div class="col-md-5 p-4 bg-white shadow rounded-3">
             <div class="card shadow-sm">
                 <div class="card-body">
                     <h3 class="text-center mb-4">Student Login</h3>
@@ -21,16 +24,12 @@ include('Includes/Header.php');
                             <input type="password" name="password" class="form-control" required>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-block">Login</button>
+                        <button type="submit" class="text-center mt-1 mb-3 btn btn-primary">Login</button>
                     </form>
 
                     <p class="text-center mt-3 mb-0">
                         Don't have an account?
-<<<<<<< HEAD
-                        <a href="Registration.php">Register</a>
-=======
                         <a href="registration.php">Register</a>
->>>>>>> 14c6234 (fix)
                     </p>
                 </div>
                 <a href="index.php" class="text-center mt-1 mb-3">Go Back</a>
@@ -38,6 +37,8 @@ include('Includes/Header.php');
             </div>
         </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
 </div>
 
-<?php include('Includes/Footer.php'); ?>
+

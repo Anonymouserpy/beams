@@ -60,11 +60,8 @@ if (isset($_SESSION['student_id'])) {
         --sidebar-active: #33A1E0;
         --sidebar-text: rgba(255, 255, 255, 0.85);
         --sidebar-text-muted: rgba(255, 255, 255, 0.55);
-<<<<<<< HEAD
         --sidebar-width: 200px;
-=======
         --sidebar-width: 230px;
->>>>>>> 14c6234 (fix)
         --transition: all 0.2s ease;
     }
 
@@ -122,13 +119,8 @@ if (isset($_SESSION['student_id'])) {
         display: flex;
         align-items: center;
         justify-content: center;
-<<<<<<< HEAD
         font-size: 2.8rem;
         font-weight: 600;
-=======
-        font-size: 1.25rem;
-        font-weight: 200;
->>>>>>> 14c6234 (fix)
         color: white;
         box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
         border: 2px solid rgba(255, 255, 255, 0.15);
@@ -202,11 +194,8 @@ if (isset($_SESSION['student_id'])) {
 
     .nav-link i {
         width: 28px;
-<<<<<<< HEAD
         font-size: 1.3rem;
-=======
         font-size: 1rem;
->>>>>>> 14c6234 (fix)
         margin-right: 14px;
         text-align: center;
         transition: var(--transition);
@@ -315,11 +304,8 @@ if (isset($_SESSION['student_id'])) {
         background: none;
         border: none;
         color: white;
-<<<<<<< HEAD
         font-size: 1.6rem;
-=======
         font-size: 1rem;
->>>>>>> 14c6234 (fix)
         cursor: pointer;
         padding: 0.3rem 0.6rem;
         border-radius: 8px;
@@ -400,58 +386,37 @@ if (isset($_SESSION['student_id'])) {
                 <div class="profile-avatar">
                     <?= htmlspecialchars($studentInitials) ?>
                 </div>
-                <div class="profile-name"><?= htmlspecialchars($studentName) ?></div>
                 <div class="profile-role"><?= htmlspecialchars($studentRole) ?></div>
             </div>
 
             <div class="sidebar-nav">
                 <ul class="nav">
                     <li class="nav-item">
-<<<<<<< HEAD
-                        <a href="../Studentpage/student_dashboard.php" class="nav-link">
-=======
                         <a href="../studentpage/student_dashboard.php" class="nav-link">
->>>>>>> 14c6234 (fix)
                             <i class="fas fa-chart-pie"></i>
                             <span>Dashboard</span>
                         </a>
                     </li>
                     <li class="nav-item">
-<<<<<<< HEAD
-                        <a href="../Studentpage/student_event.php" class="nav-link">
-=======
                         <a href="../studentpage/student_event.php" class="nav-link">
->>>>>>> 14c6234 (fix)
                             <i class="fas fa-calendar-alt"></i>
                             <span>Events</span>
                         </a>
                     </li>
                     <li class="nav-item">
-<<<<<<< HEAD
-                        <a href="../Studentpage/student_attendance.php" class="nav-link">
-=======
                         <a href="../studentpage/student_attendance.php" class="nav-link">
->>>>>>> 14c6234 (fix)
                             <i class="fas fa-clock"></i>
                             <span>Attendance</span>
                         </a>
                     </li>
                     <li class="nav-item">
-<<<<<<< HEAD
-                        <a href="../Studentpage/student_fines.php" class="nav-link">
-=======
                         <a href="../studentpage/student_fines.php" class="nav-link">
->>>>>>> 14c6234 (fix)
                             <i class="fas fa-coins"></i>
                             <span>Fines</span>
                         </a>
                     </li>
                     <li class="nav-item">
-<<<<<<< HEAD
-                        <a href="../Studentpage/student_profile.php" class="nav-link">
-=======
                         <a href="../studentpage/student_profile.php" class="nav-link">
->>>>>>> 14c6234 (fix)
                             <i class="fas fa-user-cog"></i>
                             <span>My Profile</span>
                         </a>
@@ -488,11 +453,7 @@ if (isset($_SESSION['student_id'])) {
                 <div class="sidebar-nav">
                     <ul class="nav">
                         <li class="nav-item">
-<<<<<<< HEAD
-                            <a href="../Studentpage/student_dashboard.php" class="nav-link">
-=======
                             <a href="../studentpage/student_dashboard.php" class="nav-link">
->>>>>>> 14c6234 (fix)
                                 <i class="fas fa-chart-pie"></i>
                                 <span>Dashboard</span>
                             </a>

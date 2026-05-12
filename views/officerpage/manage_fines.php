@@ -214,10 +214,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['act
 // --- For GET requests, include sidebar and display the page ---
 include "../sidebar/officer_sidebar.php";
 
-// --- Filter and Data Fetching ---
+// --- Filter, Pagination, and Data Fetching ---
 $filter_status = isset($_GET['status']) ? $_GET['status'] : '';
+$current_page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
 
-// Fetch aggregated student data:
+// Get per_page from GET parameter, session, or default to 10
+$per_page = 10;
+if (isset($_GET['per_page']) && in_array($_GET['per_page'], [10, 25, 50, 100])) {
+    $per_page = intval($_GET['per_page']);
+    $_SESSION['fines_per_page'] = $per_page;
+} elseif (isset($_SESSION['fines_per_page'])) {
+    $per_page = $_SESSION['fines_per_page'];
+}
+
+$offset = ($current_page - 1) * $per_page;
+
+// Build the base query for counting total distinct students with fines
+$count_query = "
+    SELECT COUNT(DISTINCT sf.student_id) as total
+    FROM student_fines sf
+";
+// Apply status filter to count query
+if ($filter_status === 'unpaid') {
+    $count_query .= " WHERE sf.status = 'unpaid'";
+} elseif ($filter_status === 'paid') {
+    $count_query .= " WHERE sf.status = 'paid'";
+}
+$count_result = $conn->query($count_query);
+$total_records = $count_result ? $count_result->fetch_assoc()['total'] : 0;
+$total_pages = ceil($total_records / $per_page);
+
+// Build the main query with pagination
 $query = "
     SELECT 
         sf.student_id,
@@ -230,21 +257,36 @@ $query = "
     FROM student_fines sf
     LEFT JOIN students s ON sf.student_id = s.student_id
 ";
+
+// Apply status filter to main query
 if ($filter_status === 'unpaid') {
-    $query .= " GROUP BY sf.student_id HAVING unpaid_count > 0";
+    $query .= " WHERE sf.status = 'unpaid'";
 } elseif ($filter_status === 'paid') {
-    $query .= " GROUP BY sf.student_id HAVING unpaid_count = 0";
-} else {
-    $query .= " GROUP BY sf.student_id";
+    $query .= " WHERE sf.status = 'paid'";
 }
+
+$query .= " GROUP BY sf.student_id";
 $query .= " ORDER BY s.full_name ASC";
+$query .= " LIMIT $offset, $per_page";
+
 $result = $conn->query($query);
 $students_agg = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 
-$total_fines = array_sum(array_column($students_agg, 'total_fines'));
-$total_amount = array_sum(array_column($students_agg, 'total_amount'));
-$unpaid_count = array_sum(array_column($students_agg, 'unpaid_count'));
-$unpaid_amount = array_sum(array_column($students_agg, 'unpaid_total'));
+// Calculate totals for stats cards (unfiltered)
+$stats_query = "
+    SELECT 
+        COUNT(*) AS total_fines,
+        SUM(amount) AS total_amount,
+        SUM(CASE WHEN status = 'unpaid' THEN 1 ELSE 0 END) AS unpaid_count,
+        SUM(CASE WHEN status = 'unpaid' THEN amount ELSE 0 END) AS unpaid_amount
+    FROM student_fines
+";
+$stats_result = $conn->query($stats_query);
+$stats = $stats_result ? $stats_result->fetch_assoc() : [];
+$total_fines = $stats['total_fines'] ?? 0;
+$total_amount = $stats['total_amount'] ?? 0;
+$unpaid_count = $stats['unpaid_count'] ?? 0;
+$unpaid_amount = $stats['unpaid_amount'] ?? 0;
 
 // Fetch students for dropdown
 $students = [];
@@ -258,6 +300,19 @@ $events = [];
 $ev_res = $conn->query("SELECT event_id, event_name FROM events ORDER BY event_name");
 if ($ev_res) {
     $events = $ev_res->fetch_all(MYSQLI_ASSOC);
+}
+
+// Helper function to build query string with pagination parameters
+function buildQueryString($params = []) {
+    $currentParams = $_GET;
+    foreach ($params as $key => $value) {
+        if ($value === null) {
+            unset($currentParams[$key]);
+        } else {
+            $currentParams[$key] = $value;
+        }
+    }
+    return http_build_query($currentParams);
 }
 ?>
 <!DOCTYPE html>
@@ -563,6 +618,84 @@ if ($ev_res) {
         padding: 1rem;
         color: var(--gray-600);
     }
+    
+    /* Pagination Styles */
+    .pagination-container {
+        background: white;
+        border-radius: 1rem;
+        padding: 1rem;
+        margin-top: 1.5rem;
+        border: 1px solid var(--gray-200);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    
+    .pagination {
+        margin: 0;
+        gap: 0.3rem;
+    }
+    
+    .pagination .page-link {
+        border-radius: 0.5rem;
+        border: 1px solid var(--gray-200);
+        color: var(--gray-600);
+        padding: 0.5rem 1rem;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+    
+    .pagination .page-link:hover {
+        background-color: var(--primary);
+        border-color: var(--primary);
+        color: white;
+    }
+    
+    .pagination .page-item.active .page-link {
+        background-color: var(--primary);
+        border-color: var(--primary);
+        color: white;
+    }
+    
+    .pagination .page-item.disabled .page-link {
+        background-color: var(--gray-100);
+        color: var(--gray-600);
+        cursor: not-allowed;
+    }
+    
+    .pagination-info {
+        color: var(--gray-600);
+        font-size: 0.9rem;
+    }
+    
+    .per-page-select {
+        padding: 0.4rem 0.8rem;
+        border-radius: 0.5rem;
+        border: 1px solid var(--gray-200);
+        background: white;
+        color: var(--gray-600);
+        font-size: 0.9rem;
+        cursor: pointer;
+    }
+    
+    .per-page-select:focus {
+        outline: none;
+        border-color: var(--primary);
+    }
+    
+    @media (max-width: 768px) {
+        .pagination-container {
+            flex-direction: column;
+            text-align: center;
+        }
+        
+        .pagination .page-link {
+            padding: 0.3rem 0.7rem;
+            font-size: 0.85rem;
+        }
+    }
     </style>
 </head>
 
@@ -594,7 +727,7 @@ if ($ev_res) {
                         </div>
                         <div>
                             <span class="text-secondary-emphasis small text-uppercase">Total Fines</span>
-                            <h3 class="mb-0 fw-bold"><?= $total_fines ?></h3>
+                            <h3 class="mb-0 fw-bold"><?= number_format($total_fines) ?></h3>
                         </div>
                     </div>
                 </div>
@@ -617,7 +750,7 @@ if ($ev_res) {
                         </div>
                         <div>
                             <span class="text-secondary-emphasis small text-uppercase">Unpaid</span>
-                            <h3 class="mb-0 fw-bold"><?= $unpaid_count ?></h3>
+                            <h3 class="mb-0 fw-bold"><?= number_format($unpaid_count) ?></h3>
                         </div>
                     </div>
                 </div>
@@ -638,17 +771,20 @@ if ($ev_res) {
             <!-- Filter Bar + Search -->
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
                 <div class="d-flex flex-wrap gap-2">
-                    <a href="?status=" class="filter-btn <?= $filter_status == '' ? 'active' : '' ?>">
+                    <a href="?<?= buildQueryString(['status' => null, 'page' => 1]) ?>" 
+                       class="filter-btn <?= $filter_status == '' ? 'active' : '' ?>">
                         <i class="bi bi-list-ul me-2"></i>All
                     </a>
-                    <a href="?status=unpaid" class="filter-btn <?= $filter_status == 'unpaid' ? 'active' : '' ?>">
+                    <a href="?<?= buildQueryString(['status' => 'unpaid', 'page' => 1]) ?>" 
+                       class="filter-btn <?= $filter_status == 'unpaid' ? 'active' : '' ?>">
                         <i class="bi bi-exclamation-triangle me-2"></i>Unpaid
                     </a>
-                    <a href="?status=paid" class="filter-btn <?= $filter_status == 'paid' ? 'active' : '' ?>">
+                    <a href="?<?= buildQueryString(['status' => 'paid', 'page' => 1]) ?>" 
+                       class="filter-btn <?= $filter_status == 'paid' ? 'active' : '' ?>">
                         <i class="bi bi-check-circle me-2"></i>Paid
                     </a>
                     <?php if ($filter_status): ?>
-                    <a href="?" class="filter-btn">
+                    <a href="?<?= buildQueryString(['status' => null, 'page' => 1]) ?>" class="filter-btn">
                         <i class="bi bi-x-circle me-2"></i>Clear Filters
                     </a>
                     <?php endif; ?>
@@ -664,54 +800,127 @@ if ($ev_res) {
             <div class="alert alert-info py-4 text-center">No fines found.</div>
             <?php else: ?>
             <div class="fines-table">
-                <table class="table align-middle" id="finesTable">
-                    <thead>
-                        <tr>
-                            <th>Student</th>
-                            <th>Reason</th>
-                            <th>Amount</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($students_agg as $student): 
-                            $student_id_esc = htmlspecialchars($student['student_id']);
-                            $student_name_esc = htmlspecialchars($student['student_name']);
-                            $status = ($student['unpaid_count'] == 0) ? 'paid' : 'unpaid';
-                            $status_badge = ($status == 'paid') 
-                                ? '<span class="badge-paid"><i class="bi bi-check-circle-fill"></i> Paid</span>'
-                                : '<span class="badge-unpaid"><i class="bi bi-exclamation-circle-fill"></i> Unpaid</span>';
-                        ?>
-                        <tr data-student-id="<?= $student_id_esc ?>"
-                            data-student-name="<?= strtolower($student_name_esc) ?>">
-                            <td class="student-name"><?= $student_name_esc ?></td>
-                            <td>Absent Event</td>
-                            <td class="fw-semibold">
-                                <?= $config['currency'] ?><?= number_format($student['total_amount'], 2) ?>
-                            </td>
-                            <td><?= $status_badge ?></td>
-                            <td>
-                                <div class="d-flex gap-2 flex-wrap">
-                                    <?php if ($student['unpaid_count'] > 0): ?>
-                                    <button class="btn pay-all-btn" data-student="<?= $student_id_esc ?>">
-                                        <i class="bi bi-cash me-1"></i> Pay All
-                                        <?= $config['currency'] ?><?= number_format($student['unpaid_total'], 2) ?>
-                                    </button>
-                                    <?php endif; ?>
-                                    <button class="btn manage-btn" data-student-id="<?= $student_id_esc ?>"
-                                        data-student-name="<?= $student_name_esc ?>" data-bs-toggle="modal"
-                                        data-bs-target="#finesModal">
-                                        <i class="bi bi-eye me-1"></i> Manage Fines
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                <div class="table-responsive">
+                    <table class="table align-middle" id="finesTable">
+                        <thead>
+                            <tr>
+                                <th>Student</th>
+                                <th>Reason</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($students_agg as $student): 
+                                $student_id_esc = htmlspecialchars($student['student_id']);
+                                $student_name_esc = htmlspecialchars($student['student_name']);
+                                $status = ($student['unpaid_count'] == 0) ? 'paid' : 'unpaid';
+                                $status_badge = ($status == 'paid') 
+                                    ? '<span class="badge-paid"><i class="bi bi-check-circle-fill"></i> Paid</span>'
+                                    : '<span class="badge-unpaid"><i class="bi bi-exclamation-circle-fill"></i> Unpaid</span>';
+                            ?>
+                            <tr data-student-id="<?= $student_id_esc ?>"
+                                data-student-name="<?= strtolower($student_name_esc) ?>">
+                                <td class="student-name"><?= $student_name_esc ?></td>
+                                <td>Absent Event</td>
+                                <td class="fw-semibold">
+                                    <?= $config['currency'] ?><?= number_format($student['total_amount'], 2) ?>
+                                </td>
+                                <td><?= $status_badge ?></td>
+                                <td>
+                                    <div class="d-flex gap-2 flex-wrap">
+                                        <?php if ($student['unpaid_count'] > 0): ?>
+                                        <button class="btn pay-all-btn" data-student="<?= $student_id_esc ?>">
+                                            <i class="bi bi-cash me-1"></i> Pay All
+                                            <?= $config['currency'] ?><?= number_format($student['unpaid_total'], 2) ?>
+                                        </button>
+                                        <?php endif; ?>
+                                        <button class="btn manage-btn" data-student-id="<?= $student_id_esc ?>"
+                                            data-student-name="<?= $student_name_esc ?>" data-bs-toggle="modal"
+                                            data-bs-target="#finesModal">
+                                            <i class="bi bi-eye me-1"></i> Manage Fines
+                                        </button>
+                                    </div>
+                                 </td>
+                             </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
                 <div id="noSearchResults" class="no-results">No matching students found.</div>
             </div>
+            
+            <!-- Pagination -->
+            <?php if ($total_pages > 1): ?>
+            <div class="pagination-container">
+                <div class="pagination-info">
+                    Showing <?= $offset + 1 ?> to <?= min($offset + $per_page, $total_records) ?> of <?= $total_records ?> students
+                </div>
+                <nav aria-label="Page navigation">
+                    <ul class="pagination">
+                        <!-- Previous Page -->
+                        <li class="page-item <?= $current_page <= 1 ? 'disabled' : '' ?>">
+                            <a class="page-link" href="?<?= buildQueryString(['page' => $current_page - 1]) ?>" aria-label="Previous">
+                                <span aria-hidden="true">&laquo;</span>
+                            </a>
+                        </li>
+                        
+                        <!-- Page Numbers -->
+                        <?php
+                        $start_page = max(1, $current_page - 2);
+                        $end_page = min($total_pages, $current_page + 2);
+                        
+                        if ($start_page > 1): ?>
+                            <li class="page-item">
+                                <a class="page-link" href="?<?= buildQueryString(['page' => 1]) ?>">1</a>
+                            </li>
+                            <?php if ($start_page > 2): ?>
+                                <li class="page-item disabled"><span class="page-link">...</span></li>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                        
+                        <?php for ($i = $start_page; $i <= $end_page; $i++): ?>
+                            <li class="page-item <?= $i == $current_page ? 'active' : '' ?>">
+                                <a class="page-link" href="?<?= buildQueryString(['page' => $i]) ?>"><?= $i ?></a>
+                            </li>
+                        <?php endfor; ?>
+                        
+                        <?php if ($end_page < $total_pages): ?>
+                            <?php if ($end_page < $total_pages - 1): ?>
+                                <li class="page-item disabled"><span class="page-link">...</span></li>
+                            <?php endif; ?>
+                            <li class="page-item">
+                                <a class="page-link" href="?<?= buildQueryString(['page' => $total_pages]) ?>"><?= $total_pages ?></a>
+                            </li>
+                        <?php endif; ?>
+                        
+                        <!-- Next Page -->
+                        <li class="page-item <?= $current_page >= $total_pages ? 'disabled' : '' ?>">
+                            <a class="page-link" href="?<?= buildQueryString(['page' => $current_page + 1]) ?>" aria-label="Next">
+                                <span aria-hidden="true">&raquo;</span>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+                <div>
+                    <form method="GET" id="perPageForm" style="display: inline;">
+                        <?php foreach ($_GET as $key => $value): ?>
+                            <?php if ($key !== 'per_page' && $key !== 'page'): ?>
+                                <input type="hidden" name="<?= htmlspecialchars($key) ?>" value="<?= htmlspecialchars($value) ?>">
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                        <input type="hidden" name="page" value="1">
+                        <select name="per_page" id="perPageSelect" class="per-page-select" onchange="this.form.submit()">
+                            <option value="10" <?= $per_page == 10 ? 'selected' : '' ?>>10 per page</option>
+                            <option value="25" <?= $per_page == 25 ? 'selected' : '' ?>>25 per page</option>
+                            <option value="50" <?= $per_page == 50 ? 'selected' : '' ?>>50 per page</option>
+                            <option value="100" <?= $per_page == 100 ? 'selected' : '' ?>>100 per page</option>
+                        </select>
+                    </form>
+                </div>
+            </div>
+            <?php endif; ?>
             <?php endif; ?>
         </div>
     </div>
@@ -831,12 +1040,11 @@ if ($ev_res) {
 
     <script>
     $(document).ready(function() {
-        // ---------- SEARCH FUNCTIONALITY (FIXED) ----------
+        // ---------- SEARCH FUNCTIONALITY ----------
         function filterTable() {
             let searchTerm = $('#searchStudent').val().toLowerCase().trim();
             let hasVisible = false;
             $('#finesTable tbody tr').each(function() {
-                // Use attr() to get raw string value (prevents jQuery from auto-converting numbers)
                 let studentName = $(this).attr('data-student-name');
                 if (studentName === undefined || studentName === null) {
                     studentName = $(this).find('.student-name').text();
@@ -921,13 +1129,11 @@ if ($ev_res) {
             });
         });
 
-        // ---------- MANAGE FINES MODAL (FIXED: use res.fines directly) ----------
+        // ---------- MANAGE FINES MODAL ----------
         $('#finesModal').on('show.bs.modal', function(event) {
             const button = $(event.relatedTarget);
             const studentId = button.data('student-id');
             const studentName = button.data('student-name');
-
-            console.log("Opening modal for student ID:", studentId);
 
             $('#modalStudentName').text(studentName);
             $('#finesLoading').show();
@@ -945,9 +1151,6 @@ if ($ev_res) {
                 dataType: 'json',
                 success: function(res) {
                     $('#finesLoading').hide();
-                    console.log("Fines response:", res);
-
-                    // PHP returns fines directly as a property of the response object
                     let fines = res.fines || (res.data && res.data.fines) || [];
 
                     if (res.status === 'success' && fines.length > 0) {
@@ -969,8 +1172,9 @@ if ($ev_res) {
                                         <button class="btn delete-fine-btn" data-fine-id="${fine.fine_id}">
                                             <i class="bi bi-trash"></i> Delete
                                         </button>
-                                    </td>
-                                </tr>
+                                      </div>
+                                    </div>
+                                  '
                             `;
                             tbody.append(row);
                         });
@@ -978,23 +1182,18 @@ if ($ev_res) {
                     } else if (res.status === 'success' && fines.length === 0) {
                         $('#noFinesMsg').show();
                     } else {
-                        let errMsg = res.message ||
-                            'Failed to load fines. Check console for details.';
+                        let errMsg = res.message || 'Failed to load fines.';
                         $('#errorMsg').text(errMsg).show();
-                        console.error("Error response:", res);
                     }
                 },
                 error: function(xhr, status, error) {
                     $('#finesLoading').hide();
-                    let errMsg = 'Network error: ' + status + ' - ' + error +
-                        '. See console for details.';
-                    $('#errorMsg').text(errMsg).show();
-                    console.error("AJAX error details:", xhr.responseText);
+                    $('#errorMsg').text('Network error: ' + status).show();
                 }
             });
         });
 
-        // ---------- DELETE FINE (delegated) ----------
+        // ---------- DELETE FINE ----------
         $(document).on('click', '.delete-fine-btn', function() {
             const fineId = $(this).data('fine-id');
             if (!confirm('Delete this fine permanently?')) return;
@@ -1037,6 +1236,7 @@ if ($ev_res) {
                 return m;
             });
         }
+        
         $('#addFineModal, #finesModal').on('show.bs.modal', function() {
             $('.alert').fadeOut();
         });

@@ -1,7 +1,3 @@
-<?php
-include('Includes/header.php');
-
-?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -48,10 +44,7 @@ include('Includes/header.php');
                 <button type="submit" class="btn btn-primary w-100">Login</button>
             </form>
 
-<<<<<<< HEAD
-=======
             <a href="officer_registration.php" class="text-center mt-1 mb-3">Register as a New Officer</a>
->>>>>>> 14c6234 (fix)
             <a href="index.php" class="text-center mt-1 mb-3">Go Back</a>
 
         </div>
@@ -61,4 +54,4 @@ include('Includes/header.php');
 </body>
 
 </html>
-<?php include('Includes/footer.php'); ?>
+

@@ -27,11 +27,7 @@ function runFinesIfNeeded() {
         error_log("Error generating fines: " . mysqli_error($conn));
     }
 
-<<<<<<< HEAD
     // Update the last run time (optional, for tracking)
-    file_put_contents($lastRunFile, date('Y-m-d H:i:s', $currentTime));
-=======
->>>>>>> 14c6234 (fix)
 }
 runFinesIfNeeded();
 
@@ -66,12 +62,37 @@ if (isset($_GET['ajax_delete']) && !empty($_GET['ajax_delete'])) {
     }
     exit();
 }
-// Handle AJAX Refresh (every 5 seconds polling)
+
+// Handle AJAX Refresh with Pagination support
 if (isset($_GET['ajax_refresh']) && $_GET['ajax_refresh'] == '1') {
     header('Content-Type: application/json');
-
-    // Fetch all students with aggregated data
-    $students_result = $conn->query("
+    
+    // Get pagination parameters
+    $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+    $per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 12;
+    $offset = ($page - 1) * $per_page;
+    $search = isset($_GET['search']) ? $conn->real_escape_string($_GET['search']) : '';
+    $year_filter = isset($_GET['year']) ? intval($_GET['year']) : 0;
+    
+    // Build WHERE clause for search and filter
+    $where_clauses = [];
+    if (!empty($search)) {
+        $where_clauses[] = "(s.full_name LIKE '%$search%' OR s.student_id LIKE '%$search%')";
+    }
+    if ($year_filter > 0 && $year_filter <= 4) {
+        $where_clauses[] = "s.year_level = $year_filter";
+    }
+    
+    $where_sql = !empty($where_clauses) ? "WHERE " . implode(" AND ", $where_clauses) : "";
+    
+    // Get total count for pagination
+    $count_query = "SELECT COUNT(DISTINCT s.student_id) as total FROM students s $where_sql";
+    $count_result = $conn->query($count_query);
+    $total_records = $count_result ? $count_result->fetch_assoc()['total'] : 0;
+    $total_pages = ceil($total_records / $per_page);
+    
+    // Fetch students with pagination
+    $query = "
         SELECT s.*, 
                COUNT(DISTINCT a.attendance_id) as attendance_count,
                COUNT(DISTINCT f.fine_id) as total_fines,
@@ -79,21 +100,24 @@ if (isset($_GET['ajax_refresh']) && $_GET['ajax_refresh'] == '1') {
         FROM students s
         LEFT JOIN attendance a ON s.student_id = a.student_id
         LEFT JOIN student_fines f ON s.student_id = f.student_id
+        $where_sql
         GROUP BY s.student_id
         ORDER BY s.year_level ASC, s.section ASC, s.full_name ASC
-    ");
-
+        LIMIT $offset, $per_page
+    ";
+    
+    $students_result = $conn->query($query);
     $students = [];
     while ($row = $students_result->fetch_assoc()) {
         $students[] = $row;
     }
-
-    // Get statistics
+    
+    // Get statistics (unfiltered)
     $total_students = $conn->query("SELECT COUNT(*) as count FROM students")->fetch_assoc()['count'];
     $total_sections = $conn->query("SELECT COUNT(DISTINCT section) as count FROM students")->fetch_assoc()['count'];
     $total_unpaid = $conn->query("SELECT SUM(amount) as total FROM student_fines WHERE status = 'unpaid'")->fetch_assoc()['total'] ?: 0;
     $total_attendance = $conn->query("SELECT COUNT(*) as count FROM attendance")->fetch_assoc()['count'];
-
+    
     echo json_encode([
         'success' => true,
         'students' => $students,
@@ -102,6 +126,14 @@ if (isset($_GET['ajax_refresh']) && $_GET['ajax_refresh'] == '1') {
             'total_sections' => $total_sections,
             'total_unpaid' => $total_unpaid,
             'total_attendance' => $total_attendance
+        ],
+        'pagination' => [
+            'current_page' => $page,
+            'per_page' => $per_page,
+            'total_records' => $total_records,
+            'total_pages' => $total_pages,
+            'has_next' => $page < $total_pages,
+            'has_prev' => $page > 1
         ]
     ]);
     exit();
@@ -117,7 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['ajax_action'])) {
     $section = $conn->real_escape_string($_POST['section']);
     $password = isset($_POST['password']) ? $_POST['password'] : '';
 
-    // Validate year level (1-5 for college)
+    // Validate year level (1-4 for college)
     if ($year_level < 1 || $year_level > 4) {
         $year_level = 1;
     }
@@ -230,7 +262,35 @@ function broadcastWebSocket($data) {
     $conn->query("INSERT INTO websocket_messages (message, created_at) VALUES ('$message', NOW())");
 }
 
-// Fetch all students with aggregated data
+// --- PAGINATION SETUP FOR INITIAL PAGE LOAD ---
+$current_page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+$per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 12;
+$per_page_options = [12, 24, 48, 96];
+if (!in_array($per_page, $per_page_options)) {
+    $per_page = 12;
+}
+$offset = ($current_page - 1) * $per_page;
+$search_query = isset($_GET['search']) ? trim($_GET['search']) : '';
+$year_filter = isset($_GET['year']) ? intval($_GET['year']) : 0;
+
+// Build WHERE clause for initial load
+$where_clauses = [];
+if (!empty($search_query)) {
+    $search_escaped = $conn->real_escape_string($search_query);
+    $where_clauses[] = "(s.full_name LIKE '%$search_escaped%' OR s.student_id LIKE '%$search_escaped%')";
+}
+if ($year_filter > 0 && $year_filter <= 4) {
+    $where_clauses[] = "s.year_level = $year_filter";
+}
+$where_sql = !empty($where_clauses) ? "WHERE " . implode(" AND ", $where_clauses) : "";
+
+// Get total count for pagination
+$count_query = "SELECT COUNT(DISTINCT s.student_id) as total FROM students s $where_sql";
+$count_result = $conn->query($count_query);
+$total_records = $count_result ? $count_result->fetch_assoc()['total'] : 0;
+$total_pages = ceil($total_records / $per_page);
+
+// Fetch students with pagination for initial load
 $students = $conn->query("
     SELECT s.*, 
            COUNT(DISTINCT a.attendance_id) as attendance_count,
@@ -239,15 +299,30 @@ $students = $conn->query("
     FROM students s
     LEFT JOIN attendance a ON s.student_id = a.student_id
     LEFT JOIN student_fines f ON s.student_id = f.student_id
+    $where_sql
     GROUP BY s.student_id
     ORDER BY s.year_level ASC, s.section ASC, s.full_name ASC
+    LIMIT $offset, $per_page
 ");
 
-// Get statistics
+// Get statistics (unfiltered for stats cards)
 $total_students = $conn->query("SELECT COUNT(*) as count FROM students")->fetch_assoc()['count'];
 $total_sections = $conn->query("SELECT COUNT(DISTINCT section) as count FROM students")->fetch_assoc()['count'];
 $total_unpaid = $conn->query("SELECT SUM(amount) as total FROM student_fines WHERE status = 'unpaid'")->fetch_assoc()['total'] ?: 0;
 $total_attendance = $conn->query("SELECT COUNT(*) as count FROM attendance")->fetch_assoc()['count'];
+
+// Helper function to build pagination URL
+function buildPaginationUrl($params = []) {
+    $current_params = $_GET;
+    foreach ($params as $key => $value) {
+        if ($value === null) {
+            unset($current_params[$key]);
+        } else {
+            $current_params[$key] = $value;
+        }
+    }
+    return '?' . http_build_query($current_params);
+}
 
 // Check for WebSocket table and create if not exists
 $conn->query("CREATE TABLE IF NOT EXISTS websocket_messages (
@@ -299,22 +374,6 @@ require "../sidebar/officer_sidebar.php";
         .main-contents {
             margin-left: 0;
             padding: 20px;
-        }
-    }
-
-
-
-    /* Main content wrapper - adjust based on your sidebar's layout */
-    .main-wrapper {
-        margin-left: 280px;
-        /* Adjust this value to match your sidebar width */
-        padding: 20px;
-        transition: margin-left 0.3s ease;
-    }
-
-    @media (max-width: 991px) {
-        .main-wrapper {
-            margin-left: 0;
         }
     }
 
@@ -411,12 +470,10 @@ require "../sidebar/officer_sidebar.php";
             opacity: 0;
             transform: scaleX(0);
         }
-
         50% {
             opacity: 1;
             transform: scaleX(1);
         }
-
         100% {
             opacity: 0;
             transform: scaleX(1);
@@ -567,23 +624,12 @@ require "../sidebar/officer_sidebar.php";
     }
 
     @keyframes pulseUpdate {
-
-        0%,
-        100% {
-            transform: scale(1);
-        }
-
-        50% {
-            transform: scale(1.02);
-            box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
-        }
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.02); box-shadow: 0 0 20px rgba(99, 102, 241, 0.3); }
     }
 
     @keyframes fadeOut {
-        to {
-            opacity: 0;
-            transform: scale(0.9);
-        }
+        to { opacity: 0; transform: scale(0.9); }
     }
 
     .student-header {
@@ -996,7 +1042,6 @@ require "../sidebar/officer_sidebar.php";
             transform: translateX(100%);
             opacity: 0;
         }
-
         to {
             transform: translateX(0);
             opacity: 1;
@@ -1076,9 +1121,7 @@ require "../sidebar/officer_sidebar.php";
     }
 
     @keyframes spin {
-        to {
-            transform: rotate(360deg);
-        }
+        to { transform: rotate(360deg); }
     }
 
     /* WebSocket Connection Status */
@@ -1126,18 +1169,11 @@ require "../sidebar/officer_sidebar.php";
     }
 
     @keyframes pulse {
-
-        0%,
-        100% {
-            opacity: 1;
-        }
-
-        50% {
-            opacity: 0.5;
-        }
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
     }
 
-    /* Real-time indicator */
+    /* Live indicator */
     .live-indicator {
         display: inline-flex;
         align-items: center;
@@ -1153,15 +1189,8 @@ require "../sidebar/officer_sidebar.php";
     }
 
     @keyframes livePulse {
-
-        0%,
-        100% {
-            opacity: 1;
-        }
-
-        50% {
-            opacity: 0.6;
-        }
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
     }
 
     .live-indicator::before {
@@ -1172,12 +1201,131 @@ require "../sidebar/officer_sidebar.php";
         border-radius: 50%;
     }
 
+    /* Pagination Styles */
+    .pagination-container {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e2e8f0;
+        background: white;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .pagination-controls {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .pagination-btn {
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        background: white;
+        color: var(--dark);
+        font-weight: 500;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .pagination-btn:hover:not(:disabled) {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: white;
+    }
+
+    .pagination-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .pagination-btn.active-page {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: white;
+    }
+
+    .page-numbers {
+        display: flex;
+        gap: 0.25rem;
+        flex-wrap: wrap;
+    }
+
+    .page-number {
+        min-width: 38px;
+        height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        background: white;
+        color: var(--dark);
+        font-weight: 500;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        text-decoration: none;
+    }
+
+    .page-number:hover:not(.active-page) {
+        background: #f1f5f9;
+        border-color: var(--primary);
+    }
+
+    .page-number.active-page {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: white;
+        cursor: default;
+    }
+
+    .page-ellipsis {
+        min-width: 38px;
+        height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #94a3b8;
+    }
+
+    .per-page-selector {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .per-page-selector label {
+        font-size: 0.875rem;
+        color: #64748b;
+    }
+
+    .per-page-select {
+        padding: 0.5rem;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        background: white;
+        font-size: 0.875rem;
+        cursor: pointer;
+    }
+
+    .pagination-info {
+        font-size: 0.875rem;
+        color: #64748b;
+    }
+
     /* Responsive */
     @media (max-width: 1200px) {
         .stats-row {
             grid-template-columns: repeat(2, 1fr);
         }
-
         .year-selector {
             grid-template-columns: repeat(3, 1fr);
         }
@@ -1187,23 +1335,33 @@ require "../sidebar/officer_sidebar.php";
         .stats-row {
             grid-template-columns: 1fr;
         }
-
         .students-grid {
             grid-template-columns: 1fr;
         }
-
         .year-selector {
             grid-template-columns: repeat(2, 1fr);
         }
-
         .search-box {
             width: 100%;
             min-width: unset;
         }
-
         .card-header {
             flex-direction: column;
             align-items: stretch;
+        }
+        .pagination-container {
+            flex-direction: column;
+            align-items: stretch;
+            text-align: center;
+        }
+        .pagination-controls {
+            justify-content: center;
+        }
+        .per-page-selector {
+            justify-content: center;
+        }
+        .pagination-info {
+            text-align: center;
         }
     }
 
@@ -1213,7 +1371,6 @@ require "../sidebar/officer_sidebar.php";
             opacity: 0;
             transform: translateY(20px);
         }
-
         to {
             opacity: 1;
             transform: translateY(0);
@@ -1224,21 +1381,10 @@ require "../sidebar/officer_sidebar.php";
         animation: fadeInUp 0.5s ease forwards;
     }
 
-    .delay-1 {
-        animation-delay: 0.1s;
-    }
-
-    .delay-2 {
-        animation-delay: 0.2s;
-    }
-
-    .delay-3 {
-        animation-delay: 0.3s;
-    }
-
-    .delay-4 {
-        animation-delay: 0.4s;
-    }
+    .delay-1 { animation-delay: 0.1s; }
+    .delay-2 { animation-delay: 0.2s; }
+    .delay-3 { animation-delay: 0.3s; }
+    .delay-4 { animation-delay: 0.4s; }
 
     /* Password toggle */
     .password-wrapper {
@@ -1287,7 +1433,6 @@ require "../sidebar/officer_sidebar.php";
             transform: translate(-50%, -100%);
             opacity: 0;
         }
-
         to {
             transform: translate(-50%, 0);
             opacity: 1;
@@ -1297,9 +1442,8 @@ require "../sidebar/officer_sidebar.php";
 </head>
 
 <body>
-    <!-- The sidebar is already included above via require and will appear here -->
+    <!-- The sidebar is already included above via require -->
     <div class="main-contents">
-
 
         <!-- WebSocket Connection Status -->
         <div class="ws-status disconnected" id="wsStatus">
@@ -1313,7 +1457,6 @@ require "../sidebar/officer_sidebar.php";
             <span>Syncing real-time updates...</span>
         </div>
 
-        <!-- Main Content Wrapper - Adjust margin based on your sidebar -->
         <!-- Toast Container -->
         <div class="toast-container" id="toastContainer"></div>
 
@@ -1322,8 +1465,7 @@ require "../sidebar/officer_sidebar.php";
             <div class="header-content">
                 <nav aria-label="breadcrumb">
                     <ol class="breadcrumb">
-                        <li class="breadcrumb-item"><a href="officer_dashboard.php"><i class="fas fa-home"></i>
-                                Dashboard</a></li>
+                        <li class="breadcrumb-item"><a href="officer_dashboard.php"><i class="fas fa-home"></i> Dashboard</a></li>
                         <li class="breadcrumb-item active" aria-current="page">College Student Manager</li>
                     </ol>
                 </nav>
@@ -1331,8 +1473,7 @@ require "../sidebar/officer_sidebar.php";
                     <i class="fas fa-user-graduate me-3"></i>College Student Manager
                     <span class="live-indicator">LIVE</span>
                 </h1>
-                <p class="page-subtitle">Manage college student records, track attendance, and monitor fines in
-                    real-time</p>
+                <p class="page-subtitle">Manage college student records, track attendance, and monitor fines in real-time</p>
             </div>
         </div>
 
@@ -1378,10 +1519,11 @@ require "../sidebar/officer_sidebar.php";
                 <div class="d-flex gap-2 align-items-center flex-wrap">
                     <div class="search-box">
                         <i class="fas fa-search"></i>
-                        <input type="text" id="searchInput" placeholder="Search students..." onkeyup="filterStudents()">
+                        <input type="text" id="searchInput" placeholder="Search students..." 
+                               value="<?php echo htmlspecialchars($search_query); ?>"
+                               onkeypress="handleSearchKeypress(event)">
                     </div>
-                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal"
-                        onclick="resetForm()">
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal" onclick="resetForm()">
                         <i class="fas fa-plus me-2"></i>Add Student
                     </button>
                 </div>
@@ -1389,15 +1531,15 @@ require "../sidebar/officer_sidebar.php";
 
             <!-- Filter Tabs -->
             <div class="filter-tabs">
-                <button class="filter-tab" onclick="filterByYear(event, 'all')">All Students</button>
-                <button class="filter-tab" onclick="filterByYear(event, 1)">1st Year</button>
-                <button class="filter-tab" onclick="filterByYear(event, 2)">2nd Year</button>
-                <button class="filter-tab" onclick="filterByYear(event, 3)">3rd Year</button>
-                <button class="filter-tab" onclick="filterByYear(event, 4)">4th Year</button>
+                <button class="filter-tab <?php echo $year_filter == 0 ? 'active' : ''; ?>" onclick="filterByYear(0)">All Students</button>
+                <button class="filter-tab <?php echo $year_filter == 1 ? 'active' : ''; ?>" onclick="filterByYear(1)">1st Year</button>
+                <button class="filter-tab <?php echo $year_filter == 2 ? 'active' : ''; ?>" onclick="filterByYear(2)">2nd Year</button>
+                <button class="filter-tab <?php echo $year_filter == 3 ? 'active' : ''; ?>" onclick="filterByYear(3)">3rd Year</button>
+                <button class="filter-tab <?php echo $year_filter == 4 ? 'active' : ''; ?>" onclick="filterByYear(4)">4th Year</button>
             </div>
 
             <div class="students-grid" id="studentsGrid">
-                <?php if ($students->num_rows > 0): ?>
+                <?php if ($students && $students->num_rows > 0): ?>
                 <?php while($student = $students->fetch_assoc()): 
                             $initials = implode('', array_map(function($word) { 
                                 return strtoupper(substr($word, 0, 1)); 
@@ -1405,11 +1547,10 @@ require "../sidebar/officer_sidebar.php";
                             $initials = substr($initials, 0, 2);
 
                             $attendance_rate = $total_attendance > 0 ? 
-                                round(($student['attendance_count'] / $total_attendance) * 100) : 0;
+                                round(($student['attendance_count'] / max($total_attendance, 1)) * 100) : 0;
 
-                            // Year level suffix
-                            $year_suffix = ['st', 'nd', 'rd', 'th', 'th'];
-                            $year_display = $student['year_level'] . $year_suffix[$student['year_level'] - 1] . ' Year';
+                            $year_suffix = ['st', 'nd', 'rd', 'th'];
+                            $year_display = $student['year_level'] . ($year_suffix[$student['year_level'] - 1] ?? 'th') . ' Year';
                         ?>
                 <div class="student-card" id="student-<?php echo htmlspecialchars($student['student_id']); ?>"
                     data-year="<?php echo $student['year_level']; ?>"
@@ -1438,8 +1579,7 @@ require "../sidebar/officer_sidebar.php";
 
                         <div class="student-stats">
                             <div class="stat-row">
-                                <span><i class="fas fa-clipboard-check me-2 text-primary"></i>Attendance
-                                    Records</span>
+                                <span><i class="fas fa-clipboard-check me-2 text-primary"></i>Attendance Records</span>
                                 <span class="attendance-count"><?php echo $student['attendance_count']; ?></span>
                             </div>
                             <div class="stat-row">
@@ -1448,9 +1588,8 @@ require "../sidebar/officer_sidebar.php";
                             </div>
                             <div class="stat-row">
                                 <span><i class="fas fa-exclamation-circle me-2 text-danger"></i>Unpaid Amount</span>
-                                <span
-                                    class="unpaid-amount <?php echo $student['unpaid_amount'] > 0 ? 'fines-warning' : ''; ?>">
-                                    ₱<?php echo number_format($student['unpaid_amount'] ?: 0, 2); ?>
+                                <span class="unpaid-amount <?php echo ($student['unpaid_amount'] ?? 0) > 0 ? 'fines-warning' : ''; ?>">
+                                    ₱<?php echo number_format($student['unpaid_amount'] ?? 0, 2); ?>
                                 </span>
                             </div>
                         </div>
@@ -1461,17 +1600,13 @@ require "../sidebar/officer_sidebar.php";
                         </div>
 
                         <div class="student-actions">
-                            <!-- View button now triggers modal -->
-                            <button class="btn-student btn-view"
-                                onclick="viewStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
+                            <button class="btn-student btn-view" onclick="viewStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
                                 <i class="fas fa-eye"></i> View
                             </button>
-                            <button class="btn-student btn-edit"
-                                onclick="editStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
+                            <button class="btn-student btn-edit" onclick="editStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
                                 <i class="fas fa-edit"></i> Edit
                             </button>
-                            <button class="btn-student btn-delete"
-                                onclick="deleteStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
+                            <button class="btn-student btn-delete" onclick="deleteStudent('<?php echo htmlspecialchars($student['student_id']); ?>')">
                                 <i class="fas fa-trash"></i>
                             </button>
                         </div>
@@ -1483,17 +1618,77 @@ require "../sidebar/officer_sidebar.php";
                     <div class="empty-icon">
                         <i class="fas fa-user-plus"></i>
                     </div>
-                    <h3 class="empty-title">No Students Yet</h3>
-                    <p class="empty-text">Start by adding your first college student to the system.</p>
-                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal"
-                        onclick="resetForm()">
+                    <h3 class="empty-title">No Students Found</h3>
+                    <p class="empty-text"><?php echo !empty($search_query) ? 'No students match your search criteria.' : 'Start by adding your first college student to the system.'; ?></p>
+                    <?php if (!empty($search_query) || $year_filter > 0): ?>
+                    <button class="btn btn-primary" onclick="clearFilters()">
+                        <i class="fas fa-undo me-2"></i>Clear Filters
+                    </button>
+                    <?php else: ?>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal" onclick="resetForm()">
                         <i class="fas fa-plus me-2"></i>Add First Student
                     </button>
+                    <?php endif; ?>
                 </div>
                 <?php endif; ?>
             </div>
+
+            <!-- Pagination -->
+            <?php if ($total_pages > 1): ?>
+            <div class="pagination-container">
+                <div class="pagination-info">
+                    Showing <?php echo $offset + 1; ?> to <?php echo min($offset + $per_page, $total_records); ?> of <?php echo $total_records; ?> students
+                </div>
+                <div class="pagination-controls">
+                    <a href="<?php echo buildPaginationUrl(['page' => $current_page - 1]); ?>" 
+                       class="pagination-btn <?php echo $current_page <= 1 ? 'disabled' : ''; ?>"
+                       <?php echo $current_page <= 1 ? 'aria-disabled="true"' : ''; ?>>
+                        <i class="fas fa-chevron-left"></i> Previous
+                    </a>
+                    <div class="page-numbers">
+                        <?php
+                        $start_page = max(1, $current_page - 2);
+                        $end_page = min($total_pages, $current_page + 2);
+                        
+                        if ($start_page > 1): ?>
+                            <a href="<?php echo buildPaginationUrl(['page' => 1]); ?>" class="page-number">1</a>
+                            <?php if ($start_page > 2): ?>
+                                <span class="page-ellipsis">...</span>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                        
+                        <?php for ($i = $start_page; $i <= $end_page; $i++): ?>
+                            <a href="<?php echo buildPaginationUrl(['page' => $i]); ?>" 
+                               class="page-number <?php echo $i == $current_page ? 'active-page' : ''; ?>">
+                                <?php echo $i; ?>
+                            </a>
+                        <?php endfor; ?>
+                        
+                        <?php if ($end_page < $total_pages): ?>
+                            <?php if ($end_page < $total_pages - 1): ?>
+                                <span class="page-ellipsis">...</span>
+                            <?php endif; ?>
+                            <a href="<?php echo buildPaginationUrl(['page' => $total_pages]); ?>" class="page-number"><?php echo $total_pages; ?></a>
+                        <?php endif; ?>
+                    </div>
+                    <a href="<?php echo buildPaginationUrl(['page' => $current_page + 1]); ?>" 
+                       class="pagination-btn <?php echo $current_page >= $total_pages ? 'disabled' : ''; ?>"
+                       <?php echo $current_page >= $total_pages ? 'aria-disabled="true"' : ''; ?>>
+                        Next <i class="fas fa-chevron-right"></i>
+                    </a>
+                </div>
+                <div class="per-page-selector">
+                    <label>Show:</label>
+                    <select class="per-page-select" id="perPageSelect" onchange="changePerPage(this.value)">
+                        <option value="12" <?php echo $per_page == 12 ? 'selected' : ''; ?>>12 per page</option>
+                        <option value="24" <?php echo $per_page == 24 ? 'selected' : ''; ?>>24 per page</option>
+                        <option value="48" <?php echo $per_page == 48 ? 'selected' : ''; ?>>48 per page</option>
+                        <option value="96" <?php echo $per_page == 96 ? 'selected' : ''; ?>>96 per page</option>
+                    </select>
+                </div>
+            </div>
+            <?php endif; ?>
         </div>
-    </div>
     </div>
 
     <!-- Floating Action Button (Mobile) -->
@@ -1559,7 +1754,6 @@ require "../sidebar/officer_sidebar.php";
                                         <div class="year-label">4th Year</div>
                                     </div>
                                 </label>
-
                             </div>
                         </div>
 
@@ -1570,8 +1764,7 @@ require "../sidebar/officer_sidebar.php";
                         </div>
 
                         <div class="mb-3" id="passwordField">
-                            <label class="form-label">Password <small class="text-muted" id="passwordHint">(Leave blank
-                                    for default: student123)</small></label>
+                            <label class="form-label">Password <small class="text-muted" id="passwordHint">(Leave blank for default: student123)</small></label>
                             <div class="password-wrapper">
                                 <input type="password" class="form-control" name="password" id="password"
                                     placeholder="Enter password">
@@ -1590,7 +1783,7 @@ require "../sidebar/officer_sidebar.php";
         </div>
     </div>
 
-    <!-- View Student Modal (NEW) -->
+    <!-- View Student Modal -->
     <div class="modal fade" id="viewStudentModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -1602,8 +1795,7 @@ require "../sidebar/officer_sidebar.php";
                 </div>
                 <div class="modal-body">
                     <div class="text-center mb-3">
-                        <div class="student-avatar mx-auto" style="width: 80px; height: 80px; font-size: 2rem;"
-                            id="viewAvatar">JD</div>
+                        <div class="student-avatar mx-auto" style="width: 80px; height: 80px; font-size: 2rem;" id="viewAvatar">JD</div>
                         <h4 id="viewFullName" class="mt-2"></h4>
                         <span class="student-id" id="viewStudentId"></span>
                     </div>
@@ -1636,8 +1828,7 @@ require "../sidebar/officer_sidebar.php";
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="button" class="btn btn-primary" onclick="editStudentFromView()"
-                        id="viewEditBtn">Edit</button>
+                    <button type="button" class="btn btn-primary" onclick="editStudentFromView()" id="viewEditBtn">Edit</button>
                 </div>
             </div>
         </div>
@@ -1645,6 +1836,13 @@ require "../sidebar/officer_sidebar.php";
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+    // Pagination state
+    let currentPage = <?php echo $current_page; ?>;
+    let currentPerPage = <?php echo $per_page; ?>;
+    let currentSearch = '<?php echo addslashes($search_query); ?>';
+    let currentYear = <?php echo $year_filter; ?>;
+    let isRefreshing = false;
+
     // WebSocket Configuration
     const WS_CONFIG = {
         host: '<?php echo $_SERVER['HTTP_HOST']; ?>',
@@ -1654,19 +1852,13 @@ require "../sidebar/officer_sidebar.php";
         maxReconnectAttempts: 5
     };
 
-    // Global WebSocket instance
     let ws = null;
     let reconnectAttempts = 0;
     let reconnectTimer = null;
 
-    // Filter state
-    let currentFilterYear = 'all';
-
     // Initialize WebSocket connection
     function initWebSocket() {
-        // Prevent duplicate connections
         if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-            console.log('WebSocket already connecting or open');
             return;
         }
 
@@ -1674,17 +1866,13 @@ require "../sidebar/officer_sidebar.php";
         updateWSStatus('connecting', 'Connecting...');
 
         try {
-            ws = new WebSocket(wsUrl); // assign to global ws
+            ws = new WebSocket(wsUrl);
 
-            ws.onopen = function(event) {
-                console.log('WebSocket Connected');
+            ws.onopen = function() {
                 updateWSStatus('connected', 'Live');
                 reconnectAttempts = 0;
                 showToast('Connected', 'Real-time updates enabled', 'success');
-                this.send(JSON.stringify({
-                    type: 'subscribe',
-                    channel: 'student_updates'
-                }));
+                ws.send(JSON.stringify({ type: 'subscribe', channel: 'student_updates' }));
             };
 
             ws.onmessage = function(event) {
@@ -1692,10 +1880,8 @@ require "../sidebar/officer_sidebar.php";
                 handleWebSocketMessage(data);
             };
 
-            ws.onclose = function(event) {
-                console.log('WebSocket Disconnected');
+            ws.onclose = function() {
                 updateWSStatus('disconnected', 'Offline');
-                // Reconnect logic
                 if (reconnectAttempts < WS_CONFIG.maxReconnectAttempts) {
                     reconnectAttempts++;
                     updateWSStatus('connecting', `Reconnecting (${reconnectAttempts})...`);
@@ -1715,26 +1901,19 @@ require "../sidebar/officer_sidebar.php";
         }
     }
 
-    // Update WebSocket status indicator
     function updateWSStatus(status, text) {
         const indicator = document.getElementById('wsStatus');
         indicator.className = `ws-status ${status}`;
         indicator.innerHTML = `<i class="fas fa-circle"></i><span>${text}</span>`;
     }
 
-    // Handle incoming WebSocket messages
     function handleWebSocketMessage(data) {
         console.log('WebSocket Message:', data);
-
         switch (data.type) {
             case 'student_created':
-                handleStudentCreated(data.student);
-                break;
             case 'student_updated':
-                handleStudentUpdated(data.student);
-                break;
             case 'student_deleted':
-                handleStudentDeleted(data.student_id);
+                refreshData();
                 break;
             case 'stats_update':
                 updateStats(data.stats);
@@ -1742,358 +1921,234 @@ require "../sidebar/officer_sidebar.php";
             case 'notification':
                 showToast(data.title, data.message, data.level || 'info');
                 break;
-            default:
-                console.log('Unknown message type:', data.type);
         }
     }
 
-    // Handle student created via WebSocket
-    function handleStudentCreated(student) {
-        // Check if student already exists (avoid duplicates if we created it)
-        const existingCard = document.getElementById(`student-${student.student_id}`);
-        if (existingCard) return;
-
-        // Create new student card HTML
-        const yearSuffix = ['st', 'nd', 'rd', 'th', 'th'];
-        const yearDisplay = student.year_level + yearSuffix[student.year_level - 1] + ' Year';
-        const initials = student.full_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-
-        const cardHTML = `
-            <div class="student-card adding" id="student-${student.student_id}"
-                data-year="${student.year_level}"
-                data-name="${student.full_name.toLowerCase()}"
-                data-id="${student.student_id.toLowerCase()}">
-                <div class="student-header">
-                    <div class="student-avatar">${initials}</div>
-                    <div class="student-info">
-                        <h4>${escapeHtml(student.full_name)}</h4>
-                        <span class="student-id">${escapeHtml(student.student_id)}</span>
-                    </div>
-                </div>
-                <div class="student-body">
-                    <div class="student-meta">
-                        <div class="meta-item">
-                            <div class="meta-value">${yearDisplay}</div>
-                            <div class="meta-label">Year Level</div>
-                        </div>
-                        <div class="meta-item">
-                            <div class="meta-value">${escapeHtml(student.section)}</div>
-                            <div class="meta-label">Section</div>
-                        </div>
-                    </div>
-                    <div class="student-stats">
-                        <div class="stat-row">
-                            <span><i class="fas fa-clipboard-check me-2 text-primary"></i>Attendance Records</span>
-                            <span class="attendance-count">0</span>
-                        </div>
-                        <div class="stat-row">
-                            <span><i class="fas fa-file-invoice-dollar me-2 text-warning"></i>Total Fines</span>
-                            <span class="fines-count">0</span>
-                        </div>
-                        <div class="stat-row">
-                            <span><i class="fas fa-exclamation-circle me-2 text-danger"></i>Unpaid Amount</span>
-                            <span class="unpaid-amount">₱0.00</span>
-                        </div>
-                    </div>
-                    <div class="progress">
-                        <div class="progress-bar" style="width: 0%"></div>
-                    </div>
-                    <div class="student-actions">
-                        <button class="btn-student btn-view" onclick="viewStudent('${escapeHtml(student.student_id)}')">
-                            <i class="fas fa-eye"></i> View
-                        </button>
-                        <button class="btn-student btn-edit" onclick="editStudent('${escapeHtml(student.student_id)}')">
-                            <i class="fas fa-edit"></i> Edit
-                        </button>
-                        <button class="btn-student btn-delete" onclick="deleteStudent('${escapeHtml(student.student_id)}')">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        const grid = document.getElementById('studentsGrid');
-
-        // Remove empty state if exists
-        const emptyState = document.getElementById('emptyState');
-        if (emptyState) {
-            emptyState.remove();
+    // Refresh data with current pagination/filter state
+    async function refreshData() {
+        if (isRefreshing) return;
+        isRefreshing = true;
+        
+        const syncNotification = document.getElementById('syncNotification');
+        syncNotification.classList.add('show');
+        
+        try {
+            const url = `?ajax_refresh=1&page=${currentPage}&per_page=${currentPerPage}&search=${encodeURIComponent(currentSearch)}&year=${currentYear}`;
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if (data.success) {
+                renderStudents(data.students);
+                updateStats(data.stats);
+                if (data.pagination) {
+                    updatePaginationUI(data.pagination);
+                    currentPage = data.pagination.current_page;
+                    currentPerPage = data.pagination.per_page;
+                }
+            }
+        } catch (error) {
+            console.error('Refresh failed:', error);
+        } finally {
+            setTimeout(() => {
+                syncNotification.classList.remove('show');
+                isRefreshing = false;
+            }, 500);
         }
-
-        // Insert new card
-        grid.insertAdjacentHTML('afterbegin', cardHTML);
-
-        // Show notification
-        showToast('New Student Added', `${student.full_name} was added by another officer`, 'info');
-
-        // Update stats
-        incrementStat('totalStudents');
-
-        // Reapply filter
-        applyFilter();
     }
 
-    // Handle student updated via WebSocket
-    function handleStudentUpdated(student) {
-        const card = document.getElementById(`student-${student.student_id}`);
-        if (!card) return;
-
-        // Add updating animation
-        card.classList.add('updating');
-        setTimeout(() => card.classList.remove('updating'), 500);
-
-        // Update card content
-        const yearSuffix = ['st', 'nd', 'rd', 'th', 'th'];
-        const yearDisplay = student.year_level + yearSuffix[student.year_level - 1] + ' Year';
-        const initials = student.full_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-
-        card.querySelector('.student-avatar').textContent = initials;
-        card.querySelector('.student-info h4').textContent = student.full_name;
-        card.querySelector('.student-id').textContent = student.student_id;
-        card.querySelector('.meta-item:first-child .meta-value').textContent = yearDisplay;
-        card.querySelector('.meta-item:last-child .meta-value').textContent = student.section;
-
-        // Update data attributes
-        card.setAttribute('data-name', student.full_name.toLowerCase());
-        card.setAttribute('data-id', student.student_id.toLowerCase());
-        card.setAttribute('data-year', student.year_level);
-
-        showToast('Student Updated', `${student.full_name}'s information was updated`, 'info');
-
-        // Reapply filter (in case year changed)
-        applyFilter();
-    }
-
-    // Render student cards from JSON data
     function renderStudents(students) {
         const grid = document.getElementById('studentsGrid');
-        const emptyStateHtml = `
-        <div class="empty-state" id="emptyState">
-            <div class="empty-icon">
-                <i class="fas fa-user-plus"></i>
-            </div>
-            <h3 class="empty-title">No Students Yet</h3>
-            <p class="empty-text">Start by adding your first college student to the system.</p>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal" onclick="resetForm()">
-                <i class="fas fa-plus me-2"></i>Add First Student
-            </button>
-        </div>
-    `;
-
+        
         if (!students || students.length === 0) {
-            grid.innerHTML = emptyStateHtml;
-            // No cards to filter, but we still need to update active tab class
-            updateActiveTabClass();
+            grid.innerHTML = `
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-icon">
+                        <i class="fas fa-user-plus"></i>
+                    </div>
+                    <h3 class="empty-title">No Students Found</h3>
+                    <p class="empty-text">${currentSearch ? 'No students match your search criteria.' : 'Start by adding your first college student to the system.'}</p>
+                    ${currentSearch || currentYear ? 
+                        '<button class="btn btn-primary" onclick="clearFilters()"><i class="fas fa-undo me-2"></i>Clear Filters</button>' : 
+                        '<button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal" onclick="resetForm()"><i class="fas fa-plus me-2"></i>Add First Student</button>'
+                    }
+                </div>
+            `;
             return;
         }
 
         let html = '';
-        const yearSuffix = ['st', 'nd', 'rd', 'th', 'th'];
-
+        const yearSuffix = ['st', 'nd', 'rd', 'th'];
+        
         students.forEach(student => {
-            const yearDisplay = student.year_level + yearSuffix[student.year_level - 1] + ' Year';
+            const yearDisplay = student.year_level + (yearSuffix[student.year_level - 1] || 'th') + ' Year';
             const initials = student.full_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-            const attendanceRate = <?php echo $total_attendance; ?> > 0 ?
-                Math.round((student.attendance_count / <?php echo $total_attendance; ?>) * 100) :
-                0;
-
+            const totalAttendance = parseInt(document.getElementById('totalAttendance')?.textContent) || 0;
+            const attendanceRate = totalAttendance > 0 ? Math.round((student.attendance_count / Math.max(totalAttendance, 1)) * 100) : 0;
+            
             html += `
-            <div class="student-card" id="student-${escapeHtml(student.student_id)}"
-                data-year="${student.year_level}"
-                data-name="${student.full_name.toLowerCase()}"
-                data-id="${student.student_id.toLowerCase()}">
-                <div class="student-header">
-                    <div class="student-avatar">${initials}</div>
-                    <div class="student-info">
-                        <h4>${escapeHtml(student.full_name)}</h4>
-                        <span class="student-id">${escapeHtml(student.student_id)}</span>
+                <div class="student-card" id="student-${escapeHtml(student.student_id)}"
+                    data-year="${student.year_level}"
+                    data-name="${student.full_name.toLowerCase()}"
+                    data-id="${student.student_id.toLowerCase()}">
+                    <div class="student-header">
+                        <div class="student-avatar">${initials}</div>
+                        <div class="student-info">
+                            <h4>${escapeHtml(student.full_name)}</h4>
+                            <span class="student-id">${escapeHtml(student.student_id)}</span>
+                        </div>
+                    </div>
+                    <div class="student-body">
+                        <div class="student-meta">
+                            <div class="meta-item">
+                                <div class="meta-value">${yearDisplay}</div>
+                                <div class="meta-label">Year Level</div>
+                            </div>
+                            <div class="meta-item">
+                                <div class="meta-value">${escapeHtml(student.section)}</div>
+                                <div class="meta-label">Section</div>
+                            </div>
+                        </div>
+                        <div class="student-stats">
+                            <div class="stat-row">
+                                <span><i class="fas fa-clipboard-check me-2 text-primary"></i>Attendance Records</span>
+                                <span class="attendance-count">${student.attendance_count || 0}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span><i class="fas fa-file-invoice-dollar me-2 text-warning"></i>Total Fines</span>
+                                <span class="fines-count">${student.total_fines || 0}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span><i class="fas fa-exclamation-circle me-2 text-danger"></i>Unpaid Amount</span>
+                                <span class="unpaid-amount ${(student.unpaid_amount || 0) > 0 ? 'fines-warning' : ''}">
+                                    ₱${parseFloat(student.unpaid_amount || 0).toFixed(2)}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar" style="width: ${Math.min(attendanceRate, 100)}%"></div>
+                        </div>
+                        <div class="student-actions">
+                            <button class="btn-student btn-view" onclick="viewStudent('${escapeHtml(student.student_id)}')">
+                                <i class="fas fa-eye"></i> View
+                            </button>
+                            <button class="btn-student btn-edit" onclick="editStudent('${escapeHtml(student.student_id)}')">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button class="btn-student btn-delete" onclick="deleteStudent('${escapeHtml(student.student_id)}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
-                <div class="student-body">
-                    <div class="student-meta">
-                        <div class="meta-item">
-                            <div class="meta-value">${yearDisplay}</div>
-                            <div class="meta-label">Year Level</div>
-                        </div>
-                        <div class="meta-item">
-                            <div class="meta-value">${escapeHtml(student.section)}</div>
-                            <div class="meta-label">Section</div>
-                        </div>
-                    </div>
-                    <div class="student-stats">
-                        <div class="stat-row">
-                            <span><i class="fas fa-clipboard-check me-2 text-primary"></i>Attendance Records</span>
-                            <span class="attendance-count">${student.attendance_count || 0}</span>
-                        </div>
-                        <div class="stat-row">
-                            <span><i class="fas fa-file-invoice-dollar me-2 text-warning"></i>Total Fines</span>
-                            <span class="fines-count">${student.total_fines || 0}</span>
-                        </div>
-                        <div class="stat-row">
-                            <span><i class="fas fa-exclamation-circle me-2 text-danger"></i>Unpaid Amount</span>
-                            <span class="unpaid-amount ${student.unpaid_amount > 0 ? 'fines-warning' : ''}">
-                                ₱${parseFloat(student.unpaid_amount || 0).toFixed(2)}
-                            </span>
-                        </div>
-                    </div>
-                    <div class="progress">
-                        <div class="progress-bar" style="width: ${Math.min(attendanceRate, 100)}%"></div>
-                    </div>
-                    <div class="student-actions">
-                        <button class="btn-student btn-view" onclick="viewStudent('${escapeHtml(student.student_id)}')">
-                            <i class="fas fa-eye"></i> View
-                        </button>
-                        <button class="btn-student btn-edit" onclick="editStudent('${escapeHtml(student.student_id)}')">
-                            <i class="fas fa-edit"></i> Edit
-                        </button>
-                        <button class="btn-student btn-delete" onclick="deleteStudent('${escapeHtml(student.student_id)}')">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
+            `;
         });
-
+        
         grid.innerHTML = html;
-        // Apply current filter after rendering
-        applyFilter();
-        // Update active tab class (in case tabs were recreated)
-        updateActiveTabClass();
     }
 
-    // Update active tab class based on currentFilterYear
-    function updateActiveTabClass() {
-        const tabs = document.querySelectorAll('.filter-tab');
-        tabs.forEach(tab => {
-            const year = tab.getAttribute('onclick') ? tab.getAttribute('onclick').match(/'([^']+)'/) : null;
-            // The onclick attribute contains something like "filterByYear(event, 'all')"
-            // We can parse the year from it, but simpler: just rely on the stored currentFilterYear
-            // We'll add a data-year attribute to each tab for easy matching
-        });
-
-        // Add data-year attributes to tabs for easier matching (done in HTML but we can set here too)
-        const tabButtons = document.querySelectorAll('.filter-tab');
-        tabButtons.forEach(btn => {
-            const onclick = btn.getAttribute('onclick');
-            if (onclick) {
-                const match = onclick.match(/'([^']+)'/);
-                if (match) {
-                    btn.setAttribute('data-year', match[1]);
-                }
-            }
-        });
-
-        // Now set active based on currentFilterYear
-        tabButtons.forEach(btn => {
-            if (btn.getAttribute('data-year') == currentFilterYear) {
-                btn.classList.add('active');
+    function updatePaginationUI(pagination) {
+        const paginationContainer = document.querySelector('.pagination-container');
+        if (!pagination || pagination.total_pages <= 1) {
+            if (paginationContainer) paginationContainer.style.display = 'none';
+            return;
+        }
+        
+        if (paginationContainer) paginationContainer.style.display = 'flex';
+        
+        const infoEl = paginationContainer?.querySelector('.pagination-info');
+        if (infoEl) {
+            const start = (pagination.current_page - 1) * pagination.per_page + 1;
+            const end = Math.min(pagination.current_page * pagination.per_page, pagination.total_records);
+            infoEl.textContent = `Showing ${start} to ${end} of ${pagination.total_records} students`;
+        }
+        
+        const prevBtn = paginationContainer?.querySelector('.pagination-btn:first-child');
+        if (prevBtn) {
+            if (!pagination.has_prev) {
+                prevBtn.classList.add('disabled');
+                prevBtn.removeAttribute('href');
+                prevBtn.setAttribute('aria-disabled', 'true');
             } else {
-                btn.classList.remove('active');
+                prevBtn.classList.remove('disabled');
+                prevBtn.setAttribute('href', `?page=${pagination.current_page - 1}&per_page=${pagination.per_page}&search=${encodeURIComponent(currentSearch)}&year=${currentYear}`);
+                prevBtn.removeAttribute('aria-disabled');
             }
-        });
-    }
-
-    // Apply current filter to student cards
-    function applyFilter() {
-        const cards = document.querySelectorAll('.student-card');
-        cards.forEach(card => {
-            if (currentFilterYear === 'all' || card.getAttribute('data-year') == currentFilterYear) {
-                card.style.display = 'block';
+        }
+        
+        const nextBtn = paginationContainer?.querySelector('.pagination-btn:last-child');
+        if (nextBtn) {
+            if (!pagination.has_next) {
+                nextBtn.classList.add('disabled');
+                nextBtn.removeAttribute('href');
+                nextBtn.setAttribute('aria-disabled', 'true');
             } else {
-                card.style.display = 'none';
+                nextBtn.classList.remove('disabled');
+                nextBtn.setAttribute('href', `?page=${pagination.current_page + 1}&per_page=${pagination.per_page}&search=${encodeURIComponent(currentSearch)}&year=${currentYear}`);
+                nextBtn.removeAttribute('aria-disabled');
             }
-        });
-    }
-
-    // Fetch latest data and refresh UI
-    async function refreshData() {
-        try {
-            const response = await fetch('?ajax_refresh=1');
-            const data = await response.json();
-
-            if (data.success) {
-                renderStudents(data.students);
-                updateStats(data.stats); // reuse existing updateStats function
+        }
+        
+        const pageNumbers = paginationContainer?.querySelector('.page-numbers');
+        if (pageNumbers) {
+            let pagesHtml = '';
+            const startPage = Math.max(1, pagination.current_page - 2);
+            const endPage = Math.min(pagination.total_pages, pagination.current_page + 2);
+            
+            if (startPage > 1) {
+                pagesHtml += `<a href="?page=1&per_page=${pagination.per_page}&search=${encodeURIComponent(currentSearch)}&year=${currentYear}" class="page-number">1</a>`;
+                if (startPage > 2) pagesHtml += `<span class="page-ellipsis">...</span>`;
             }
-        } catch (error) {
-            console.error('Auto-refresh failed:', error);
+            
+            for (let i = startPage; i <= endPage; i++) {
+                const activeClass = i === pagination.current_page ? 'active-page' : '';
+                pagesHtml += `<a href="?page=${i}&per_page=${pagination.per_page}&search=${encodeURIComponent(currentSearch)}&year=${currentYear}" class="page-number ${activeClass}">${i}</a>`;
+            }
+            
+            if (endPage < pagination.total_pages) {
+                if (endPage < pagination.total_pages - 1) pagesHtml += `<span class="page-ellipsis">...</span>`;
+                pagesHtml += `<a href="?page=${pagination.total_pages}&per_page=${pagination.per_page}&search=${encodeURIComponent(currentSearch)}&year=${currentYear}" class="page-number">${pagination.total_pages}</a>`;
+            }
+            
+            pageNumbers.innerHTML = pagesHtml;
         }
     }
 
-    // Start auto-refresh every 5 seconds when page loads
-    document.addEventListener('DOMContentLoaded', function() {
-        initWebSocket(); // keep WebSocket
-        setInterval(refreshData, 5000); // add AJAX polling every 5 seconds
-
-        // Initialize filter state: set active tab for 'all'
-        currentFilterYear = 'all';
-        updateActiveTabClass();
-    });
-
-    // Handle student deleted via WebSocket
-    function handleStudentDeleted(studentId) {
-        const card = document.getElementById(`student-${studentId}`);
-        if (!card) return;
-
-        card.classList.add('deleting');
-        setTimeout(() => {
-            card.remove();
-            decrementStat('totalStudents');
-
-            // Check if grid is empty
-            const grid = document.getElementById('studentsGrid');
-            if (grid.children.length === 0) {
-                location.reload();
-            } else {
-                // Reapply filter after removal
-                applyFilter();
-            }
-        }, 500);
-
-        showToast('Student Deleted', 'A student record was removed', 'warning');
-    }
-
-    // Update statistics
     function updateStats(stats) {
         if (stats.total_students !== undefined) {
-            animateValue('totalStudents', parseInt(document.getElementById('totalStudents').textContent), stats
-                .total_students);
+            animateValue('totalStudents', parseInt(document.getElementById('totalStudents').textContent), stats.total_students);
         }
         if (stats.total_sections !== undefined) {
-            animateValue('totalSections', parseInt(document.getElementById('totalSections').textContent), stats
-                .total_sections);
+            animateValue('totalSections', parseInt(document.getElementById('totalSections').textContent), stats.total_sections);
         }
         if (stats.total_unpaid !== undefined) {
             document.getElementById('totalUnpaid').textContent = '₱' + parseFloat(stats.total_unpaid).toFixed(2);
         }
         if (stats.total_attendance !== undefined) {
-            animateValue('totalAttendance', parseInt(document.getElementById('totalAttendance').textContent), stats
-                .total_attendance);
+            animateValue('totalAttendance', parseInt(document.getElementById('totalAttendance').textContent), stats.total_attendance);
         }
-
-        // Highlight updated stats
+        
         ['statStudents', 'statSections', 'statFines', 'statAttendance'].forEach(id => {
             const card = document.getElementById(id);
-            card.classList.add('updating');
-            setTimeout(() => card.classList.remove('updating'), 1000);
+            if (card) {
+                card.classList.add('updating');
+                setTimeout(() => card.classList.remove('updating'), 1000);
+            }
         });
     }
 
-    // Animate number changes
     function animateValue(id, start, end) {
         const obj = document.getElementById(id);
+        if (!obj) return;
         const range = end - start;
         const duration = 500;
         const startTime = performance.now();
-
+        
         function update(currentTime) {
             const elapsed = currentTime - startTime;
             const progress = Math.min(elapsed / duration, 1);
             const current = Math.floor(start + (range * progress));
             obj.textContent = current;
-
+            
             if (progress < 1) {
                 requestAnimationFrame(update);
             } else {
@@ -2101,56 +2156,33 @@ require "../sidebar/officer_sidebar.php";
                 setTimeout(() => obj.classList.remove('changed'), 300);
             }
         }
-
         requestAnimationFrame(update);
     }
 
-    // Increment/decrement helpers
-    function incrementStat(id) {
-        const el = document.getElementById(id);
-        const current = parseInt(el.textContent) || 0;
-        animateValue(id, current, current + 1);
-    }
-
-    function decrementStat(id) {
-        const el = document.getElementById(id);
-        const current = parseInt(el.textContent) || 0;
-        animateValue(id, current, Math.max(0, current - 1));
-    }
-
-    // Escape HTML to prevent XSS
     function escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
     }
 
-    // Toast Notification System
     function showToast(title, message, type = 'success') {
         const container = document.getElementById('toastContainer');
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-
-        const icon = type === 'success' ? 'check-circle' :
-            type === 'error' ? 'times-circle' :
-            type === 'warning' ? 'exclamation-triangle' : 'info-circle';
-
+        
+        const iconMap = { success: 'check-circle', error: 'times-circle', warning: 'exclamation-triangle', info: 'info-circle' };
+        const icon = iconMap[type] || 'info-circle';
+        
         toast.innerHTML = `
-            <div class="toast-icon">
-                <i class="fas fa-${icon}"></i>
-            </div>
+            <div class="toast-icon"><i class="fas fa-${icon}"></i></div>
             <div class="toast-content">
                 <div class="toast-title">${title}</div>
                 <div class="toast-message">${message}</div>
             </div>
-            <button class="toast-close" onclick="this.parentElement.remove()">
-                <i class="fas fa-times"></i>
-            </button>
+            <button class="toast-close" onclick="this.parentElement.remove()"><i class="fas fa-times"></i></button>
         `;
-
+        
         container.appendChild(toast);
-
-        // Auto remove after 4 seconds
         setTimeout(() => {
             toast.style.opacity = '0';
             toast.style.transform = 'translateX(100%)';
@@ -2158,39 +2190,26 @@ require "../sidebar/officer_sidebar.php";
         }, 4000);
     }
 
-    // Save Student (Create or Update)
     async function saveStudent(event) {
         event.preventDefault();
-
+        
         const form = document.getElementById('studentForm');
         const formData = new FormData(form);
         const saveBtn = document.getElementById('saveBtn');
-        const originalBtnContent = saveBtn.innerHTML;
-
-        // Show loading state
+        const originalContent = saveBtn.innerHTML;
+        
         saveBtn.disabled = true;
         saveBtn.innerHTML = '<span class="spinner"></span>Saving...';
-
+        
         try {
-            const response = await fetch('', {
-                method: 'POST',
-                body: formData
-            });
-
+            const response = await fetch('', { method: 'POST', body: formData });
             const result = await response.json();
-
+            
             if (result.success) {
                 showToast('Success!', result.message, 'success');
-
-                // Close modal
                 const modal = bootstrap.Modal.getInstance(document.getElementById('studentModal'));
                 modal.hide();
-
-                // If WebSocket is connected, the update will come through there
-                // Otherwise, refresh the page
-                if (!ws || ws.readyState !== WebSocket.OPEN) {
-                    setTimeout(() => location.reload(), 1000);
-                }
+                refreshData();
             } else {
                 showToast('Error', result.message, 'error');
             }
@@ -2199,41 +2218,30 @@ require "../sidebar/officer_sidebar.php";
             console.error('Error:', error);
         } finally {
             saveBtn.disabled = false;
-            saveBtn.innerHTML = originalBtnContent;
+            saveBtn.innerHTML = originalContent;
         }
-
         return false;
     }
 
-    // Edit Student - Load data via AJAX
     async function editStudent(studentId) {
         try {
             const response = await fetch(`?get_student=${encodeURIComponent(studentId)}`);
             const result = await response.json();
-
+            
             if (result.success) {
                 const student = result.student;
-
                 document.getElementById('existing_id').value = student.student_id;
                 document.getElementById('student_id').value = student.student_id;
                 document.getElementById('full_name').value = student.full_name;
                 document.getElementById('section').value = student.section;
-
-                // Set year level radio button
-                const yearLevel = student.year_level || 1;
-                const radio = document.querySelector(`input[name="year_level"][value="${yearLevel}"]`);
-                if (radio) {
-                    radio.checked = true;
-                }
-
-                // Clear password field and update hint
+                
+                const radio = document.querySelector(`input[name="year_level"][value="${student.year_level || 1}"]`);
+                if (radio) radio.checked = true;
+                
                 document.getElementById('password').value = '';
                 document.getElementById('passwordHint').textContent = 'Leave blank to keep current password';
-
-                document.getElementById('modalTitle').innerHTML =
-                    '<i class="fas fa-edit me-2"></i>Edit College Student';
-
-                // Show modal
+                document.getElementById('modalTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit College Student';
+                
                 const modal = new bootstrap.Modal(document.getElementById('studentModal'));
                 modal.show();
             } else {
@@ -2245,41 +2253,16 @@ require "../sidebar/officer_sidebar.php";
         }
     }
 
-    // Delete Student via AJAX
     async function deleteStudent(studentId) {
-        if (!confirm(
-                'Are you sure you want to delete this student? This will also remove all their attendance and fine records.'
-            )) {
-            return;
-        }
-
+        if (!confirm('Are you sure you want to delete this student? This will also remove all their attendance and fine records.')) return;
+        
         try {
             const response = await fetch(`?ajax_delete=${encodeURIComponent(studentId)}`);
             const result = await response.json();
-
+            
             if (result.success) {
                 showToast('Deleted!', result.message, 'success');
-
-                // Animate and remove the card
-                const card = document.getElementById(`student-${studentId}`);
-                if (card) {
-                    card.classList.add('deleting');
-                    setTimeout(() => {
-                        card.remove();
-
-                        // Check if grid is empty
-                        const grid = document.getElementById('studentsGrid');
-                        if (grid.children.length === 0) {
-                            location.reload();
-                        } else {
-                            // Reapply filter after removal
-                            applyFilter();
-                        }
-                    }, 500);
-                }
-
-                // Update stats
-                decrementStat('totalStudents');
+                refreshData();
             } else {
                 showToast('Error', result.message, 'error');
             }
@@ -2289,106 +2272,34 @@ require "../sidebar/officer_sidebar.php";
         }
     }
 
-    // Reset form when creating new student
-    function resetForm() {
-        document.getElementById('studentForm').reset();
-        document.getElementById('existing_id').value = '';
-        document.getElementById('passwordHint').textContent = 'Leave blank for default: student123';
-        document.getElementById('modalTitle').innerHTML =
-            '<i class="fas fa-user-plus me-2"></i>Add New College Student';
-        // Set default year level
-        document.querySelector('input[name="year_level"][value="1"]').checked = true;
-    }
-
-    // Reset form when modal is closed
-    document.getElementById('studentModal').addEventListener('hidden.bs.modal', function() {
-        resetForm();
-    });
-
-    // Toggle password visibility
-    function togglePassword() {
-        const passwordInput = document.getElementById('password');
-        const toggleIcon = document.querySelector('.password-toggle');
-
-        if (passwordInput.type === 'password') {
-            passwordInput.type = 'text';
-            toggleIcon.classList.remove('fa-eye');
-            toggleIcon.classList.add('fa-eye-slash');
-        } else {
-            passwordInput.type = 'password';
-            toggleIcon.classList.remove('fa-eye-slash');
-            toggleIcon.classList.add('fa-eye');
-        }
-    }
-
-    // Filter students by search
-    function filterStudents() {
-        const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-        const cards = document.querySelectorAll('.student-card');
-
-        cards.forEach(card => {
-            const name = card.getAttribute('data-name');
-            const id = card.getAttribute('data-id');
-
-            if (name.includes(searchTerm) || id.includes(searchTerm)) {
-                card.style.display = 'block';
-            } else {
-                card.style.display = 'none';
-            }
-        });
-    }
-
-    // Filter students by year level
-    function filterByYear(event, year) {
-        currentFilterYear = year;
-        // Update active tab using the clicked button (event.currentTarget)
-        document.querySelectorAll('.filter-tab').forEach(tab => {
-            tab.classList.remove('active');
-        });
-        event.currentTarget.classList.add('active');
-
-        // Filter cards
-        applyFilter();
-    }
-
-    // View student details in modal
     async function viewStudent(studentId) {
         try {
             const response = await fetch(`?get_student=${encodeURIComponent(studentId)}`);
             const result = await response.json();
-
+            
             if (result.success) {
                 const student = result.student;
-
-                // Set avatar initials
                 const initials = student.full_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
                 document.getElementById('viewAvatar').textContent = initials;
-
-                // Populate fields
                 document.getElementById('viewFullName').textContent = student.full_name;
                 document.getElementById('viewStudentId').textContent = student.student_id;
-
-                const yearSuffix = ['st', 'nd', 'rd', 'th', 'th'];
-                const yearDisplay = student.year_level + yearSuffix[student.year_level - 1] + ' Year';
+                
+                const yearSuffix = ['st', 'nd', 'rd', 'th'];
+                const yearDisplay = student.year_level + (yearSuffix[student.year_level - 1] || 'th') + ' Year';
                 document.getElementById('viewYearLevel').textContent = yearDisplay;
                 document.getElementById('viewSection').textContent = student.section;
                 document.getElementById('viewAttendanceCount').textContent = student.attendance_count || 0;
                 document.getElementById('viewTotalFines').textContent = student.total_fines || 0;
-                document.getElementById('viewUnpaidAmount').textContent = '₱' + parseFloat(student.unpaid_amount ||
-                    0).toFixed(2);
-
-                // Format created_at if available
+                document.getElementById('viewUnpaidAmount').textContent = '₱' + parseFloat(student.unpaid_amount || 0).toFixed(2);
+                
                 if (student.created_at) {
-                    const date = new Date(student.created_at);
-                    document.getElementById('viewCreatedAt').textContent = date.toLocaleString();
+                    document.getElementById('viewCreatedAt').textContent = new Date(student.created_at).toLocaleString();
                 } else {
                     document.getElementById('viewCreatedAt').textContent = 'N/A';
                 }
-
-                // Store student ID for edit button
+                
                 document.getElementById('viewEditBtn').setAttribute('data-student-id', student.student_id);
-
-                // Show modal
+                
                 const viewModal = new bootstrap.Modal(document.getElementById('viewStudentModal'));
                 viewModal.show();
             } else {
@@ -2400,65 +2311,94 @@ require "../sidebar/officer_sidebar.php";
         }
     }
 
-    // Edit from view modal
     function editStudentFromView() {
         const studentId = document.getElementById('viewEditBtn').getAttribute('data-student-id');
         if (studentId) {
-            // Hide view modal
             const viewModalEl = document.getElementById('viewStudentModal');
             const viewModal = bootstrap.Modal.getInstance(viewModalEl);
             if (viewModal) viewModal.hide();
-
-            // Open edit modal
             editStudent(studentId);
         }
     }
 
-    // Initialize WebSocket on page load
-    document.addEventListener('DOMContentLoaded', function() {
-        initWebSocket();
+    function resetForm() {
+        document.getElementById('studentForm').reset();
+        document.getElementById('existing_id').value = '';
+        document.getElementById('passwordHint').textContent = 'Leave blank for default: student123';
+        document.getElementById('modalTitle').innerHTML = '<i class="fas fa-user-plus me-2"></i>Add New College Student';
+        const defaultRadio = document.querySelector('input[name="year_level"][value="1"]');
+        if (defaultRadio) defaultRadio.checked = true;
+    }
 
-        // Setup periodic sync check (fallback if WebSocket fails)
-        setInterval(async () => {
-            if (!ws || ws.readyState !== WebSocket.OPEN) {
-                // Silently check for updates via AJAX if WebSocket is down
-                checkForUpdates();
-            }
-        }, 30000); // Check every 30 seconds
-    });
-
-    // Fallback: Check for updates via AJAX polling
-    async function checkForUpdates() {
-        try {
-            const response = await fetch('?check_updates=1&last_check=' + (window.lastCheck || 0));
-            const data = await response.json();
-
-            if (data.updates && data.updates.length > 0) {
-                document.getElementById('syncNotification').classList.add('show');
-
-                data.updates.forEach(update => {
-                    handleWebSocketMessage(update);
-                });
-
-                setTimeout(() => {
-                    document.getElementById('syncNotification').classList.remove('show');
-                }, 2000);
-            }
-
-            window.lastCheck = Math.floor(Date.now() / 1000);
-        } catch (error) {
-            console.log('Sync check failed:', error);
+    function togglePassword() {
+        const passwordInput = document.getElementById('password');
+        const toggleIcon = document.querySelector('.password-toggle');
+        if (passwordInput.type === 'password') {
+            passwordInput.type = 'text';
+            toggleIcon.classList.remove('fa-eye');
+            toggleIcon.classList.add('fa-eye-slash');
+        } else {
+            passwordInput.type = 'password';
+            toggleIcon.classList.remove('fa-eye-slash');
+            toggleIcon.classList.add('fa-eye');
         }
     }
 
-    // Cleanup on page unload
+    function filterByYear(year) {
+        currentYear = year;
+        currentPage = 1;
+        updateFilterTabs(year);
+        window.location.href = `?page=1&per_page=${currentPerPage}&search=${encodeURIComponent(currentSearch)}&year=${year}`;
+    }
+
+    function updateFilterTabs(year) {
+        const tabs = document.querySelectorAll('.filter-tab');
+        tabs.forEach((tab, index) => {
+            if (index === 0 && year === 0) tab.classList.add('active');
+            else if (year > 0 && index === year) tab.classList.add('active');
+            else tab.classList.remove('active');
+        });
+    }
+
+    function handleSearchKeypress(event) {
+        if (event.key === 'Enter') {
+            performSearch();
+        }
+    }
+
+    function performSearch() {
+        const searchInput = document.getElementById('searchInput');
+        currentSearch = searchInput.value;
+        currentPage = 1;
+        window.location.href = `?page=1&per_page=${currentPerPage}&search=${encodeURIComponent(currentSearch)}&year=${currentYear}`;
+    }
+
+    function changePerPage(perPage) {
+        currentPerPage = parseInt(perPage);
+        currentPage = 1;
+        window.location.href = `?page=1&per_page=${currentPerPage}&search=${encodeURIComponent(currentSearch)}&year=${currentYear}`;
+    }
+
+    function clearFilters() {
+        currentSearch = '';
+        currentYear = 0;
+        currentPage = 1;
+        window.location.href = `?page=1&per_page=${currentPerPage}`;
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        initWebSocket();
+        setInterval(refreshData, 10000);
+        
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.addEventListener('keypress', handleSearchKeypress);
+        }
+    });
+    
     window.addEventListener('beforeunload', function() {
-        if (reconnectTimer) {
-            clearTimeout(reconnectTimer);
-        }
-        if (ws) {
-            ws.close();
-        }
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        if (ws) ws.close();
     });
     </script>
 </body>

@@ -27,11 +27,7 @@ if(password_verify($password, $student['password'])){
     $_SESSION['year_level'] = $student['year_level'];
     $_SESSION['section'] = $student['section'];
     
-<<<<<<< HEAD
-	echo "<script>alert('Login successful!'); window.location='../Views/Studentpage/student_dashboard.php';</script>";
-=======
 	echo "<script>alert('Login successful!'); window.location='../views/studentpage/student_dashboard.php';</script>";
->>>>>>> 14c6234 (fix)
 }else{
 	echo "<script>alert('Incorrect password or student ID'); window.history.back();</script>";
 }
