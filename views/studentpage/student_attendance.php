@@ -240,9 +240,15 @@ $totalEvents = $totalAttended + $totalMissed;
 
     .page-header h2 {
         font-weight: 700;
-        color: #0f172a;
+        color: #fafafa;
         font-size: 2rem;
     }
+
+    .page-header span {
+        color: #fbfbfc;
+        font-weight: 500;
+    }
+
 
     .page-header h2 i {
         color: var(--primary);
@@ -671,7 +677,7 @@ $totalEvents = $totalAttended + $totalMissed;
         <div class="container-fluid px-0">
             <div class="page-header">
                 <h2><i class="fas fa-history"></i>Attendance History</h2>
-                <span class="text-muted small"><i class="far fa-calendar-alt me-1"></i><?= date('l, F j, Y') ?></span>
+                <span class="small"><i class="far fa-calendar-alt me-1"></i><?= date('l, F j, Y') ?></span>
             </div>
 
             <div id="currentEventContainer"></div>

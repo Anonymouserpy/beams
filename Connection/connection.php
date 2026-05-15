@@ -5,9 +5,10 @@ $user = "root";
 $password = "";
 $db = "beams";
 
-$conn = mysqli_connect($host,$user,$password,$db);
+$conn = mysqli_connect($host, $user, $password, $db);
 
-if(!$conn){
+if (!$conn) {
     die("Connection failed: " . mysqli_connect_error());
 }
+
 ?>

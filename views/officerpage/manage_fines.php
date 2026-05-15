@@ -20,6 +20,54 @@ if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
+// ========== AUDIT LOG FUNCTION ==========
+function logAudit($conn, $officer_id, $action, $table_name, $record_id = null, $old_data = null, $new_data = null) {
+    $ip_address = $_SERVER['REMOTE_ADDR'] ?? null;
+    $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+    
+    // Convert arrays/objects to JSON if needed
+    if (is_array($old_data) || is_object($old_data)) {
+        $old_data = json_encode($old_data, JSON_UNESCAPED_UNICODE);
+    }
+    if (is_array($new_data) || is_object($new_data)) {
+        $new_data = json_encode($new_data, JSON_UNESCAPED_UNICODE);
+    }
+    
+    // Truncate if too long
+    if (strlen($old_data) > 60000) {
+        $old_data = substr($old_data, 0, 60000) . '...[TRUNCATED]';
+    }
+    if (strlen($new_data) > 60000) {
+        $new_data = substr($new_data, 0, 60000) . '...[TRUNCATED]';
+    }
+    
+    $query = "INSERT INTO audit_logs (officer_id, action, table_name, record_id, old_data, new_data, ip_address, user_agent) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    
+    $stmt = mysqli_prepare($conn, $query);
+    if ($stmt) {
+        mysqli_stmt_bind_param($stmt, "ssssssss", 
+            $officer_id, 
+            $action, 
+            $table_name, 
+            $record_id, 
+            $old_data, 
+            $new_data, 
+            $ip_address, 
+            $user_agent
+        );
+        
+        if (!mysqli_stmt_execute($stmt)) {
+            error_log("Audit log failed: " . mysqli_stmt_error($stmt));
+        }
+        mysqli_stmt_close($stmt);
+        return true;
+    } else {
+        error_log("Failed to prepare audit log statement: " . mysqli_error($conn));
+        return false;
+    }
+}
+
 // Helper function to return JSON responses
 function jsonResponse($status, $message, $data = []) {
     header('Content-Type: application/json');
@@ -68,10 +116,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($amount <= 0) $errors[] = 'Amount must be greater than zero.';
 
         if (empty($errors)) {
+            // Get student and event info for audit
+            $student_name = '';
+            $stu_stmt = $conn->prepare("SELECT full_name FROM students WHERE student_id = ?");
+            $stu_stmt->bind_param("s", $student_id);
+            $stu_stmt->execute();
+            $stu_result = $stu_stmt->get_result();
+            if ($stu_result->num_rows > 0) {
+                $student_name = $stu_result->fetch_assoc()['full_name'];
+            }
+            $stu_stmt->close();
+            
+            $event_name = '';
+            $ev_stmt = $conn->prepare("SELECT event_name FROM events WHERE event_id = ?");
+            $ev_stmt->bind_param("i", $event_id);
+            $ev_stmt->execute();
+            $ev_result = $ev_stmt->get_result();
+            if ($ev_result->num_rows > 0) {
+                $event_name = $ev_result->fetch_assoc()['event_name'];
+            }
+            $ev_stmt->close();
+            
             $stmt = $conn->prepare("INSERT INTO student_fines (student_id, event_id, fine_reason, amount, status) VALUES (?, ?, ?, ?, ?)");
             $stmt->bind_param("sids", $student_id, $event_id, $reason, $amount, $status);
             if ($stmt->execute()) {
                 $fine_id = $stmt->insert_id;
+                
+                // AUDIT: Log the creation
+                logAudit($conn, $_SESSION['officer_id'], 'CREATE', 'student_fines', $fine_id, null, json_encode([
+                    'student_id' => $student_id,
+                    'student_name' => $student_name,
+                    'event_id' => $event_id,
+                    'event_name' => $event_name,
+                    'fine_reason' => $reason,
+                    'amount' => $amount,
+                    'status' => $status
+                ]));
+                
                 logWebsocketMessage($conn, 'add', ['fine_id' => $fine_id, 'student_id' => $student_id, 'amount' => $amount]);
                 jsonResponse('success', 'Fine added successfully.', ['fine_id' => $fine_id]);
             } else {
@@ -100,10 +181,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($amount <= 0) $errors[] = 'Amount must be greater than zero.';
 
         if (empty($errors)) {
+            // Get old data before update for audit
+            $old_stmt = $conn->prepare("SELECT sf.*, s.full_name as student_name, e.event_name 
+                                        FROM student_fines sf 
+                                        LEFT JOIN students s ON sf.student_id = s.student_id 
+                                        LEFT JOIN events e ON sf.event_id = e.event_id 
+                                        WHERE sf.fine_id = ?");
+            $old_stmt->bind_param("i", $fine_id);
+            $old_stmt->execute();
+            $old_data = $old_stmt->get_result()->fetch_assoc();
+            $old_stmt->close();
+            
             $stmt = $conn->prepare("UPDATE student_fines SET student_id=?, event_id=?, fine_reason=?, amount=?, status=? WHERE fine_id=?");
             $stmt->bind_param("sidsi", $student_id, $event_id, $reason, $amount, $status, $fine_id);
             if ($stmt->execute()) {
                 if ($stmt->affected_rows > 0) {
+                    // Get new data for audit
+                    $new_stmt = $conn->prepare("SELECT s.full_name as student_name, e.event_name 
+                                                FROM student_fines sf 
+                                                LEFT JOIN students s ON sf.student_id = s.student_id 
+                                                LEFT JOIN events e ON sf.event_id = e.event_id 
+                                                WHERE sf.fine_id = ?");
+                    $new_stmt->bind_param("i", $fine_id);
+                    $new_stmt->execute();
+                    $new_data = $new_stmt->get_result()->fetch_assoc();
+                    $new_stmt->close();
+                    
+                    // AUDIT: Log the edit with changes
+                    $changes = [];
+                    if ($old_data['student_id'] != $student_id) {
+                        $changes['student'] = ['old' => $old_data['student_name'], 'new' => $new_data['student_name']];
+                    }
+                    if ($old_data['event_id'] != $event_id) {
+                        $changes['event'] = ['old' => $old_data['event_name'], 'new' => $new_data['event_name']];
+                    }
+                    if ($old_data['fine_reason'] != $reason) {
+                        $changes['fine_reason'] = ['old' => $old_data['fine_reason'], 'new' => $reason];
+                    }
+                    if ($old_data['amount'] != $amount) {
+                        $changes['amount'] = ['old' => $old_data['amount'], 'new' => $amount];
+                    }
+                    if ($old_data['status'] != $status) {
+                        $changes['status'] = ['old' => $old_data['status'], 'new' => $status];
+                    }
+                    
+                    logAudit($conn, $_SESSION['officer_id'], 'UPDATE', 'student_fines', $fine_id, 
+                        json_encode(['old' => $old_data, 'changes' => $changes]), 
+                        json_encode($new_data));
+                    
                     logWebsocketMessage($conn, 'edit', ['fine_id' => $fine_id, 'student_id' => $student_id, 'amount' => $amount, 'status' => $status]);
                     jsonResponse('success', 'Fine updated successfully.');
                 } else {
@@ -125,10 +250,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             jsonResponse('error', 'Invalid fine ID.');
         }
 
+        // Get fine data before deletion for audit
+        $old_stmt = $conn->prepare("SELECT sf.*, s.full_name as student_name, e.event_name 
+                                    FROM student_fines sf 
+                                    LEFT JOIN students s ON sf.student_id = s.student_id 
+                                    LEFT JOIN events e ON sf.event_id = e.event_id 
+                                    WHERE sf.fine_id = ?");
+        $old_stmt->bind_param("i", $fine_id);
+        $old_stmt->execute();
+        $deleted_fine = $old_stmt->get_result()->fetch_assoc();
+        $old_stmt->close();
+
         $stmt = $conn->prepare("DELETE FROM student_fines WHERE fine_id = ?");
         $stmt->bind_param("i", $fine_id);
         if ($stmt->execute()) {
             if ($stmt->affected_rows > 0) {
+                // AUDIT: Log the deletion
+                logAudit($conn, $_SESSION['officer_id'], 'DELETE', 'student_fines', $fine_id, 
+                    json_encode($deleted_fine), 
+                    json_encode(['action' => 'deleted', 'deleted_by' => $_SESSION['officer_id']]));
+                
                 logWebsocketMessage($conn, 'delete', ['fine_id' => $fine_id]);
                 jsonResponse('success', 'Fine deleted successfully.');
             } else {
@@ -149,10 +290,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             jsonResponse('error', 'Invalid request.');
         }
 
+        // Get old status and fine details for audit
+        $old_stmt = $conn->prepare("SELECT sf.*, s.full_name as student_name, e.event_name 
+                                    FROM student_fines sf 
+                                    LEFT JOIN students s ON sf.student_id = s.student_id 
+                                    LEFT JOIN events e ON sf.event_id = e.event_id 
+                                    WHERE sf.fine_id = ?");
+        $old_stmt->bind_param("i", $fine_id);
+        $old_stmt->execute();
+        $fine_data = $old_stmt->get_result()->fetch_assoc();
+        $old_stmt->close();
+
         $stmt = $conn->prepare("UPDATE student_fines SET status = ? WHERE fine_id = ?");
         $stmt->bind_param("si", $new_status, $fine_id);
         if ($stmt->execute()) {
             if ($stmt->affected_rows > 0) {
+                // AUDIT: Log status change
+                logAudit($conn, $_SESSION['officer_id'], 'UPDATE', 'student_fines', $fine_id, 
+                    json_encode(['old_status' => $fine_data['status'], 'new_status' => $new_status, 'fine_details' => $fine_data]), 
+                    json_encode(['status_changed_to' => $new_status, 'changed_by' => $_SESSION['officer_id']]));
+                
                 logWebsocketMessage($conn, 'toggle_status', ['fine_id' => $fine_id, 'new_status' => $new_status]);
                 jsonResponse('success', "Fine marked as $new_status.");
             } else {
@@ -171,11 +328,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             jsonResponse('error', 'Student ID required.');
         }
 
+        // Get student info and list of unpaid fines before updating
+        $student_name = '';
+        $stu_stmt = $conn->prepare("SELECT full_name FROM students WHERE student_id = ?");
+        $stu_stmt->bind_param("s", $student_id);
+        $stu_stmt->execute();
+        $stu_result = $stu_stmt->get_result();
+        if ($stu_result->num_rows > 0) {
+            $student_name = $stu_result->fetch_assoc()['full_name'];
+        }
+        $stu_stmt->close();
+        
+        // Get list of unpaid fines
+        $fines_stmt = $conn->prepare("SELECT fine_id, amount, fine_reason FROM student_fines WHERE student_id = ? AND status = 'unpaid'");
+        $fines_stmt->bind_param("s", $student_id);
+        $fines_stmt->execute();
+        $unpaid_fines = $fines_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $fines_stmt->close();
+
         $stmt = $conn->prepare("UPDATE student_fines SET status = 'paid' WHERE student_id = ? AND status = 'unpaid'");
         $stmt->bind_param("s", $student_id);
         if ($stmt->execute()) {
             $affected = $stmt->affected_rows;
             if ($affected > 0) {
+                // AUDIT: Log bulk payment
+                logAudit($conn, $_SESSION['officer_id'], 'UPDATE', 'student_fines', $student_id, 
+                    json_encode(['action' => 'pay_all_unpaid', 'student_name' => $student_name, 'unpaid_fines' => $unpaid_fines]), 
+                    json_encode(['action' => 'paid_all_unpaid', 'count' => $affected, 'paid_by' => $_SESSION['officer_id']]));
+                
                 logWebsocketMessage($conn, 'pay_all_unpaid', ['student_id' => $student_id, 'count' => $affected]);
             }
             jsonResponse('success', "$affected unpaid fine(s) marked as paid.");
@@ -208,8 +388,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['act
     $fines = $result->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
 
+    // AUDIT: Log page view for manage fines modal
+    logAudit($conn, $_SESSION['officer_id'], 'VIEW', 'student_fines', $student_id, null, 
+        json_encode(['action' => 'view_student_fines', 'student_id' => $student_id, 'fines_count' => count($fines)]));
+
     jsonResponse('success', '', ['fines' => $fines]);
 }
+
+// --- Log page access ---
+logAudit($conn, $_SESSION['officer_id'], 'VIEW', 'student_fines_page', null, null, 
+    json_encode(['action' => 'page_access', 'timestamp' => date('Y-m-d H:i:s'), 'page' => 'Student Fines Management']));
 
 // --- For GET requests, include sidebar and display the page ---
 include "../sidebar/officer_sidebar.php";
@@ -341,13 +529,14 @@ function buildQueryString($params = []) {
     }
 
     body {
-        background-color: var(--gray-100);
-        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        font-family: 'Inter', sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: var(--dark);
+        min-height: 100vh;
     }
 
     .main-contents {
-        margin-left: 220px;
+        margin-left: 190px;
         padding: 30px;
         transition: var(--transition);
     }
@@ -826,7 +1015,7 @@ function buildQueryString($params = []) {
                                 <td>Absent Event</td>
                                 <td class="fw-semibold">
                                     <?= $config['currency'] ?><?= number_format($student['total_amount'], 2) ?>
-                                </td>
+                                 </td>
                                 <td><?= $status_badge ?></td>
                                 <td>
                                     <div class="d-flex gap-2 flex-wrap">
@@ -842,8 +1031,8 @@ function buildQueryString($params = []) {
                                             <i class="bi bi-eye me-1"></i> Manage Fines
                                         </button>
                                     </div>
-                                 </td>
-                             </tr>
+                                  </td>
+                              </tr>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
@@ -859,14 +1048,12 @@ function buildQueryString($params = []) {
                 </div>
                 <nav aria-label="Page navigation">
                     <ul class="pagination">
-                        <!-- Previous Page -->
                         <li class="page-item <?= $current_page <= 1 ? 'disabled' : '' ?>">
                             <a class="page-link" href="?<?= buildQueryString(['page' => $current_page - 1]) ?>" aria-label="Previous">
                                 <span aria-hidden="true">&laquo;</span>
                             </a>
                         </li>
                         
-                        <!-- Page Numbers -->
                         <?php
                         $start_page = max(1, $current_page - 2);
                         $end_page = min($total_pages, $current_page + 2);
@@ -895,7 +1082,6 @@ function buildQueryString($params = []) {
                             </li>
                         <?php endif; ?>
                         
-                        <!-- Next Page -->
                         <li class="page-item <?= $current_page >= $total_pages ? 'disabled' : '' ?>">
                             <a class="page-link" href="?<?= buildQueryString(['page' => $current_page + 1]) ?>" aria-label="Next">
                                 <span aria-hidden="true">&raquo;</span>
@@ -1020,16 +1206,13 @@ function buildQueryString($params = []) {
                                 <tbody id="finesTableBody"></tbody>
                             </table>
                         </div>
-                        <div class="text-muted mt-2 small"><i class="bi bi-info-circle"></i> Click "Delete" to remove a
-                            fine.</div>
+                        <div class="text-muted mt-2 small"><i class="bi bi-info-circle"></i> Click "Delete" to remove a fine.</div>
                     </div>
-                    <div id="noFinesMsg" class="alert alert-info text-center" style="display: none;">No fines recorded
-                        for this student.</div>
+                    <div id="noFinesMsg" class="alert alert-info text-center" style="display: none;">No fines recorded for this student.</div>
                     <div id="errorMsg" class="alert alert-danger text-center" style="display: none;"></div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary rounded-pill px-4"
-                        data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Close</button>
                 </div>
             </div>
         </div>
@@ -1160,8 +1343,7 @@ function buildQueryString($params = []) {
                             let statusBadge = fine.status === 'paid' ?
                                 '<span class="badge-paid"><i class="bi bi-check-circle-fill"></i> Paid</span>' :
                                 '<span class="badge-unpaid"><i class="bi bi-exclamation-circle-fill"></i> Unpaid</span>';
-                            let eventName = fine.event_name ? escapeHtml(fine
-                                .event_name) : '—';
+                            let eventName = fine.event_name ? escapeHtml(fine.event_name) : '—';
                             let row = `
                                 <tr data-fine-id="${fine.fine_id}">
                                     <td>${eventName}</td>
@@ -1172,9 +1354,8 @@ function buildQueryString($params = []) {
                                         <button class="btn delete-fine-btn" data-fine-id="${fine.fine_id}">
                                             <i class="bi bi-trash"></i> Delete
                                         </button>
-                                      </div>
-                                    </div>
-                                  '
+                                    </td>
+                                </tr>
                             `;
                             tbody.append(row);
                         });

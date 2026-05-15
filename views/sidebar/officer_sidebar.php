@@ -35,15 +35,22 @@ $officerPosition = $_SESSION['position'] ?? 'Officer';
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
-/* All previous CSS remains exactly as before – unchanged */
+/* All CSS with consistent font sizes */
 :root {
-    --sidebar-width: 220px;
+    --sidebar-width: 190px;
     --beams-primary-blue: #33A1E0;
     --beams-dark-bg: #1a1f2e;
     --beams-hover-bg: rgba(255, 255, 255, 0.08);
     --beams-active-bg: rgba(51, 161, 224, 0.2);
     --beams-text-muted: rgba(255, 255, 255, 0.6);
     --beams-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    /* Consistent font sizes */
+    --font-xs: 0.7rem;
+    --font-sm: 0.75rem;
+    --font-base: 0.875rem;
+    --font-md: 1rem;
+    --font-lg: 1.125rem;
+    --font-xl: 1.25rem;
 }
 
 * {
@@ -57,6 +64,7 @@ body {
     font-family: 'Inter', sans-serif;
     background-color: #f1f5f9;
     overflow-x: hidden;
+    font-size: var(--font-base);
 }
 
 /* Modern Sidebar */
@@ -98,18 +106,18 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.25rem;
+    font-size: var(--font-lg);
     box-shadow: 0 4px 15px rgba(51, 161, 224, 0.4);
 }
 
 .beams-brand-text {
     font-weight: 700;
-    font-size: 1.25rem;
+    font-size: var(--font-lg);
     letter-spacing: -0.5px;
 }
 
 .beams-brand-subtext {
-    font-size: 0.75rem;
+    font-size: var(--font-xs);
     color: var(--beams-text-muted);
     font-weight: 500;
     text-transform: uppercase;
@@ -123,7 +131,7 @@ body {
 }
 
 .beams-nav-section-title {
-    font-size: 0.7rem;
+    font-size: var(--font-xs);
     text-transform: uppercase;
     letter-spacing: 1.5px;
     color: var(--beams-text-muted);
@@ -153,7 +161,7 @@ body {
     transition: var(--beams-transition);
     position: relative;
     font-weight: 500;
-    font-size: 0.95rem;
+    font-size: var(--font-base);
 }
 
 .beams-nav-link::before {
@@ -191,7 +199,7 @@ body {
 .beams-nav-link i {
     width: 24px;
     text-align: center;
-    font-size: 1.1rem;
+    font-size: var(--font-md);
     transition: var(--beams-transition);
 }
 
@@ -206,7 +214,7 @@ body {
     margin-left: auto;
     background: rgba(239, 68, 68, 0.9);
     color: white;
-    font-size: 0.7rem;
+    font-size: var(--font-xs);
     padding: 0.25rem 0.5rem;
     border-radius: 20px;
     font-weight: 600;
@@ -229,6 +237,7 @@ body {
     border-radius: 10px;
     transition: var(--beams-transition);
     font-weight: 500;
+    font-size: var(--font-base);
     border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
@@ -240,6 +249,7 @@ body {
 }
 
 .beams-logout-btn i {
+    font-size: var(--font-md);
     transition: var(--beams-transition);
 }
 
@@ -266,7 +276,7 @@ body {
     justify-content: center;
     font-weight: 600;
     color: white;
-    font-size: 1.2rem;
+    font-size: var(--font-lg);
     flex-shrink: 0;
     margin-bottom: 0.5rem;
 }
@@ -278,32 +288,34 @@ body {
 .beams-user-name {
     color: white;
     font-weight: 600;
-    font-size: 1rem;
+    font-size: var(--font-base);
     margin: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
 }
 
 .beams-user-name i {
-    font-size: 0.9rem;
+    font-size: var(--font-sm);
     color: var(--beams-text-muted);
 }
 
 .beams-user-role {
     color: var(--beams-text-muted);
-    font-size: 0.8rem;
+    font-size: var(--font-xs);
     margin: 4px 0 0;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
 }
 
 .beams-user-role i {
-    font-size: 0.75rem;
+    font-size: var(--font-xs);
 }
 
 .beams-user-role.admin {
@@ -319,6 +331,22 @@ body {
     margin-left: var(--sidebar-width);
     padding: 2rem;
     min-height: 100vh;
+}
+
+/* Mobile Toggle Button */
+.beams-sidebar-toggle {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 1001;
+    background: var(--beams-dark-bg);
+    color: white;
+    border: none;
+    padding: 0.75rem;
+    border-radius: 8px;
+    cursor: pointer;
+    display: none;
+    font-size: var(--font-md);
 }
 
 /* Mobile Responsive */
@@ -337,16 +365,23 @@ body {
     }
 
     .beams-sidebar-toggle {
-        position: fixed;
-        top: 1rem;
-        left: 1rem;
-        z-index: 1001;
-        background: var(--beams-dark-bg);
-        color: white;
-        border: none;
-        padding: 0.75rem;
-        border-radius: 8px;
-        cursor: pointer;
+        display: block;
+    }
+}
+
+@media (max-width: 768px) {
+    .beams-user-name {
+        font-size: var(--font-sm);
+    }
+    .beams-user-role {
+        font-size: 0.65rem;
+    }
+    .beams-nav-link {
+        font-size: var(--font-sm);
+        padding: 0.625rem 1rem;
+    }
+    .beams-nav-link i {
+        font-size: var(--font-sm);
     }
 }
 
@@ -366,6 +401,17 @@ body {
 
 .beams-sidebar::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
+}
+
+/* Sidebar Overlay */
+.beams-sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 </style>
 
@@ -435,11 +481,25 @@ body {
                 </a>
             </li>
         </ul>
+        
+        <div class="beams-nav-section-title">Finance</div>
         <ul class="beams-nav-list">
             <li class="beams-nav-item">
-                <a href="../officerpage/manage_fines.php" class="beams-nav-link">
+                <a href="../officerpage/manage_fines.php"
+                    class="beams-nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'manage_fines.php' ? 'active' : ''; ?>">
                     <i class="fas fa-money-bill-wave"></i>
                     <span>Manage Fines</span>
+                </a>
+            </li>
+        </ul>
+
+        <div class="beams-nav-section-title">System</div>
+        <ul class="beams-nav-list">
+            <li class="beams-nav-item">
+                <a href="../officerpage/audit_logs.php"
+                    class="beams-nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'audit_logs.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-history"></i> 
+                    <span>Audit Logs</span>
                 </a>
             </li>
         </ul>
@@ -464,8 +524,6 @@ body {
             </li>
         </ul>
         <?php endif; ?>
-
-
     </div>
 
     <!-- Footer / Logout -->
@@ -483,9 +541,7 @@ body {
 </button>
 
 <!-- Overlay for mobile -->
-<div class="beams-sidebar-overlay d-lg-none" id="beamsSidebarOverlay" onclick="toggleBeamsSidebar()"
-    style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease;">
-</div>
+<div class="beams-sidebar-overlay d-lg-none" id="beamsSidebarOverlay" onclick="toggleBeamsSidebar()"></div>
 
 <script>
 function toggleBeamsSidebar() {
@@ -509,9 +565,23 @@ document.addEventListener('DOMContentLoaded', function() {
     const navLinks = document.querySelectorAll('.beams-nav-link');
 
     navLinks.forEach(link => {
-        if (link.getAttribute('href').includes(currentPage)) {
+        const href = link.getAttribute('href');
+        if (href && href.includes(currentPage)) {
             link.classList.add('active');
         }
     });
+});
+
+// Close sidebar on window resize if open
+window.addEventListener('resize', function() {
+    if (window.innerWidth > 991) {
+        const sidebar = document.getElementById('beamsSidebar');
+        const overlay = document.getElementById('beamsSidebarOverlay');
+        if (sidebar.classList.contains('show')) {
+            sidebar.classList.remove('show');
+            overlay.style.opacity = '0';
+            overlay.style.visibility = 'hidden';
+        }
+    }
 });
 </script>

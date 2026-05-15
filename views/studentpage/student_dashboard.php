@@ -242,9 +242,15 @@ $stmt->close();
         gap: 1rem;
     }
 
+    .page-header span {
+        color: #fbfbfc;
+        font-weight: 500;
+    }
+
+
     .page-header h2 {
         font-weight: 700;
-        color: #0f172a;
+        color: #ffffff;
         font-size: 2rem;
     }
 
@@ -539,7 +545,7 @@ $stmt->close();
         <div class="container-fluid px-0">
             <div class="page-header">
                 <h2><i class="fas fa-chart-pie"></i>Dashboard</h2>
-                <span class="text-muted small"><i class="far fa-calendar-alt me-1"></i><?= date('l, F j, Y') ?></span>
+                <span class="small"><i class="far fa-calendar-alt me-1"></i><?= date('l, F j, Y') ?></span>
             </div>
 
             <!-- Student profile card -->

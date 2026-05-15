@@ -4,13 +4,59 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 session_start();
-// REMOVED the early sidebar require from here
 require "../../Connection/connection.php";
 
 // Auth check
 if (!isset($_SESSION['officer_id'])) {
     header("Location: ../../officer_Login.php");
     exit();
+}
+
+// ========== AUDIT LOG FUNCTION ==========
+function logAudit($conn, $officer_id, $action, $table_name, $record_id = null, $old_data = null, $new_data = null) {
+    $ip_address = $_SERVER['REMOTE_ADDR'] ?? null;
+    $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+    
+    if (is_array($old_data) || is_object($old_data)) {
+        $old_data = json_encode($old_data, JSON_UNESCAPED_UNICODE);
+    }
+    if (is_array($new_data) || is_object($new_data)) {
+        $new_data = json_encode($new_data, JSON_UNESCAPED_UNICODE);
+    }
+    
+    // Check for null before using strlen
+    if ($old_data !== null && strlen($old_data) > 60000) {
+        $old_data = substr($old_data, 0, 60000) . '...[TRUNCATED]';
+    }
+    if ($new_data !== null && strlen($new_data) > 60000) {
+        $new_data = substr($new_data, 0, 60000) . '...[TRUNCATED]';
+    }
+    
+    $query = "INSERT INTO audit_logs (officer_id, action, table_name, record_id, old_data, new_data, ip_address, user_agent) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    
+    $stmt = mysqli_prepare($conn, $query);
+    if ($stmt) {
+        mysqli_stmt_bind_param($stmt, "ssssssss", 
+            $officer_id, 
+            $action, 
+            $table_name, 
+            $record_id, 
+            $old_data, 
+            $new_data, 
+            $ip_address, 
+            $user_agent
+        );
+        
+        if (!mysqli_stmt_execute($stmt)) {
+            error_log("Audit log failed: " . mysqli_stmt_error($stmt));
+        }
+        mysqli_stmt_close($stmt);
+        return true;
+    } else {
+        error_log("Failed to prepare audit log statement: " . mysqli_error($conn));
+        return false;
+    }
 }
 
 // Function to run fines if needed
@@ -26,8 +72,6 @@ function runFinesIfNeeded() {
     } else {
         error_log("Error generating fines: " . mysqli_error($conn));
     }
-
-    // Update the last run time (optional, for tracking)
 }
 runFinesIfNeeded();
 
@@ -35,6 +79,13 @@ runFinesIfNeeded();
 if (isset($_GET['ajax_delete']) && !empty($_GET['ajax_delete'])) {
     header('Content-Type: application/json');
     $student_id = $conn->real_escape_string($_GET['ajax_delete']);
+
+    // Get student data before deletion for audit
+    $old_stmt = $conn->prepare("SELECT * FROM students WHERE student_id = ?");
+    $old_stmt->bind_param("s", $student_id);
+    $old_stmt->execute();
+    $deleted_student = $old_stmt->get_result()->fetch_assoc();
+    $old_stmt->close();
 
     // Delete related records first
     $tables = ['student_fines', 'attendance'];
@@ -50,6 +101,11 @@ if (isset($_GET['ajax_delete']) && !empty($_GET['ajax_delete'])) {
     $result = $conn->query("DELETE FROM students WHERE student_id = '$student_id'");
 
     if ($result) {
+        // AUDIT: Log student deletion
+        logAudit($conn, $_SESSION['officer_id'], 'DELETE', 'students', $student_id, 
+            json_encode($deleted_student), 
+            json_encode(['action' => 'deleted', 'deleted_by' => $_SESSION['officer_id'], 'deleted_at' => date('Y-m-d H:i:s')]));
+        
         // Broadcast WebSocket notification
         broadcastWebSocket([
             'type' => 'student_deleted',
@@ -157,6 +213,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['ajax_action'])) {
     if (!empty($student_id) && isset($_POST['existing_id']) && !empty($_POST['existing_id'])) {
         // Update existing student
         $existing_id = $conn->real_escape_string($_POST['existing_id']);
+        
+        // Get old student data before update for audit
+        $old_stmt = $conn->prepare("SELECT * FROM students WHERE student_id = ?");
+        $old_stmt->bind_param("s", $existing_id);
+        $old_stmt->execute();
+        $old_student = $old_stmt->get_result()->fetch_assoc();
+        $old_stmt->close();
 
         if (!empty($password)) {
             // Update with new password
@@ -179,6 +242,36 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['ajax_action'])) {
         }
 
         if ($conn->query($sql)) {
+            // Get new student data for audit
+            $new_stmt = $conn->prepare("SELECT * FROM students WHERE student_id = ?");
+            $new_stmt->bind_param("s", $student_id);
+            $new_stmt->execute();
+            $new_student = $new_stmt->get_result()->fetch_assoc();
+            $new_stmt->close();
+            
+            // Build changes for audit
+            $changes = [];
+            if ($old_student['full_name'] != $full_name) {
+                $changes['full_name'] = ['old' => $old_student['full_name'], 'new' => $full_name];
+            }
+            if ($old_student['student_id'] != $student_id) {
+                $changes['student_id'] = ['old' => $old_student['student_id'], 'new' => $student_id];
+            }
+            if ($old_student['year_level'] != $year_level) {
+                $changes['year_level'] = ['old' => $old_student['year_level'], 'new' => $year_level];
+            }
+            if ($old_student['section'] != $section) {
+                $changes['section'] = ['old' => $old_student['section'], 'new' => $section];
+            }
+            if (!empty($password)) {
+                $changes['password'] = ['old' => '[HIDDEN]', 'new' => '[CHANGED]'];
+            }
+            
+            // AUDIT: Log student update
+            logAudit($conn, $_SESSION['officer_id'], 'UPDATE', 'students', $student_id, 
+                json_encode(['old' => $old_student, 'changes' => $changes]), 
+                json_encode($new_student));
+            
             // Broadcast WebSocket notification
             broadcastWebSocket([
                 'type' => 'student_updated',
@@ -205,6 +298,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['ajax_action'])) {
             VALUES ('$student_id', '$full_name', $year_level, '$section', '$hashed_password', NOW())";
 
         if ($conn->query($sql)) {
+            // Get created student data for audit
+            $new_stmt = $conn->prepare("SELECT * FROM students WHERE student_id = ?");
+            $new_stmt->bind_param("s", $student_id);
+            $new_stmt->execute();
+            $new_student = $new_stmt->get_result()->fetch_assoc();
+            $new_stmt->close();
+            
+            // AUDIT: Log student creation
+            logAudit($conn, $_SESSION['officer_id'], 'CREATE', 'students', $student_id, null, json_encode($new_student));
+            
             // Broadcast WebSocket notification
             broadcastWebSocket([
                 'type' => 'student_created',
@@ -228,6 +331,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['ajax_action'])) {
 if (isset($_GET['get_student']) && !empty($_GET['get_student'])) {
     header('Content-Type: application/json');
     $student_id = $conn->real_escape_string($_GET['get_student']);
+    
+    // AUDIT: Log view student action
+    logAudit($conn, $_SESSION['officer_id'], 'VIEW', 'students', $student_id, null, 
+        json_encode(['action' => 'view_student_details', 'timestamp' => date('Y-m-d H:i:s')]));
+    
     $result = $conn->query("
         SELECT s.*, 
                COUNT(DISTINCT a.attendance_id) as attendance_count,
@@ -248,9 +356,8 @@ if (isset($_GET['get_student']) && !empty($_GET['get_student'])) {
     exit();
 }
 
-// Function to broadcast WebSocket messages (using file-based approach for simplicity)
+// Function to broadcast WebSocket messages
 function broadcastWebSocket($data) {
-    // Connect to the internal TCP socket (port 8081)
     $socket = @fsockopen('tcp://127.0.0.1', 8081, $errno, $errstr, 1);
     if ($socket) {
         fwrite($socket, json_encode($data) . "\n");
@@ -261,6 +368,10 @@ function broadcastWebSocket($data) {
     $message = $conn->real_escape_string(json_encode($data));
     $conn->query("INSERT INTO websocket_messages (message, created_at) VALUES ('$message', NOW())");
 }
+
+// --- Log page access ---
+logAudit($conn, $_SESSION['officer_id'], 'VIEW', 'manage_students_page', null, null, 
+    json_encode(['action' => 'page_access', 'timestamp' => date('Y-m-d H:i:s'), 'page' => 'Manage Students']));
 
 // --- PAGINATION SETUP FOR INITIAL PAGE LOAD ---
 $current_page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
@@ -364,8 +475,14 @@ require "../sidebar/officer_sidebar.php";
         --card-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
     }
 
+    body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
     .main-contents {
-        margin-left: 220px;
+        margin-left: 190px;
         padding: 30px;
         transition: var(--transition);
     }
@@ -586,6 +703,29 @@ require "../sidebar/officer_sidebar.php";
         top: 50%;
         transform: translateY(-50%);
         color: #94a3b8;
+    }
+    
+    /* Search loading indicator */
+    .search-box .search-spinner {
+        position: absolute;
+        right: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 18px;
+        height: 18px;
+        border: 2px solid #e2e8f0;
+        border-top-color: var(--primary);
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+        display: none;
+    }
+    
+    .search-box.searching .search-spinner {
+        display: block;
+    }
+    
+    .search-box.searching i {
+        opacity: 0.5;
     }
 
     /* Student Grid */
@@ -1517,11 +1657,11 @@ require "../sidebar/officer_sidebar.php";
                     All College Students
                 </h3>
                 <div class="d-flex gap-2 align-items-center flex-wrap">
-                    <div class="search-box">
+                    <div class="search-box" id="searchBox">
                         <i class="fas fa-search"></i>
                         <input type="text" id="searchInput" placeholder="Search students..." 
-                               value="<?php echo htmlspecialchars($search_query); ?>"
-                               onkeypress="handleSearchKeypress(event)">
+                               value="<?php echo htmlspecialchars($search_query); ?>">
+                        <div class="search-spinner"></div>
                     </div>
                     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal" onclick="resetForm()">
                         <i class="fas fa-plus me-2"></i>Add Student
@@ -1531,11 +1671,11 @@ require "../sidebar/officer_sidebar.php";
 
             <!-- Filter Tabs -->
             <div class="filter-tabs">
-                <button class="filter-tab <?php echo $year_filter == 0 ? 'active' : ''; ?>" onclick="filterByYear(0)">All Students</button>
-                <button class="filter-tab <?php echo $year_filter == 1 ? 'active' : ''; ?>" onclick="filterByYear(1)">1st Year</button>
-                <button class="filter-tab <?php echo $year_filter == 2 ? 'active' : ''; ?>" onclick="filterByYear(2)">2nd Year</button>
-                <button class="filter-tab <?php echo $year_filter == 3 ? 'active' : ''; ?>" onclick="filterByYear(3)">3rd Year</button>
-                <button class="filter-tab <?php echo $year_filter == 4 ? 'active' : ''; ?>" onclick="filterByYear(4)">4th Year</button>
+                <button class="filter-tab <?php echo $year_filter == 0 ? 'active' : ''; ?>" data-year="0">All Students</button>
+                <button class="filter-tab <?php echo $year_filter == 1 ? 'active' : ''; ?>" data-year="1">1st Year</button>
+                <button class="filter-tab <?php echo $year_filter == 2 ? 'active' : ''; ?>" data-year="2">2nd Year</button>
+                <button class="filter-tab <?php echo $year_filter == 3 ? 'active' : ''; ?>" data-year="3">3rd Year</button>
+                <button class="filter-tab <?php echo $year_filter == 4 ? 'active' : ''; ?>" data-year="4">4th Year</button>
             </div>
 
             <div class="students-grid" id="studentsGrid">
@@ -1842,6 +1982,7 @@ require "../sidebar/officer_sidebar.php";
     let currentSearch = '<?php echo addslashes($search_query); ?>';
     let currentYear = <?php echo $year_filter; ?>;
     let isRefreshing = false;
+    let searchDebounceTimer = null; // For debouncing instant search
 
     // WebSocket Configuration
     const WS_CONFIG = {
@@ -1942,13 +2083,18 @@ require "../sidebar/officer_sidebar.php";
                 updateStats(data.stats);
                 if (data.pagination) {
                     updatePaginationUI(data.pagination);
-                    currentPage = data.pagination.current_page;
-                    currentPerPage = data.pagination.per_page;
+                    // Update URL without reload
+                    const newUrl = `?page=${data.pagination.current_page}&per_page=${data.pagination.per_page}&search=${encodeURIComponent(currentSearch)}&year=${currentYear}`;
+                    window.history.pushState({}, '', newUrl);
                 }
             }
         } catch (error) {
             console.error('Refresh failed:', error);
         } finally {
+            // Remove searching indicator
+            const searchBox = document.getElementById('searchBox');
+            if (searchBox) searchBox.classList.remove('searching');
+            
             setTimeout(() => {
                 syncNotification.classList.remove('show');
                 isRefreshing = false;
@@ -1978,11 +2124,11 @@ require "../sidebar/officer_sidebar.php";
 
         let html = '';
         const yearSuffix = ['st', 'nd', 'rd', 'th'];
+        const totalAttendance = parseInt(document.getElementById('totalAttendance')?.textContent) || 0;
         
         students.forEach(student => {
             const yearDisplay = student.year_level + (yearSuffix[student.year_level - 1] || 'th') + ' Year';
             const initials = student.full_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-            const totalAttendance = parseInt(document.getElementById('totalAttendance')?.textContent) || 0;
             const attendanceRate = totalAttendance > 0 ? Math.round((student.attendance_count / Math.max(totalAttendance, 1)) * 100) : 0;
             
             html += `
@@ -2210,6 +2356,7 @@ require "../sidebar/officer_sidebar.php";
                 const modal = bootstrap.Modal.getInstance(document.getElementById('studentModal'));
                 modal.hide();
                 refreshData();
+                resetForm();
             } else {
                 showToast('Error', result.message, 'error');
             }
@@ -2344,61 +2491,99 @@ require "../sidebar/officer_sidebar.php";
         }
     }
 
+    // === INSTANT SEARCH IMPLEMENTATION ===
+    function setupInstantSearch() {
+        const searchInput = document.getElementById('searchInput');
+        const searchBox = document.getElementById('searchBox');
+        
+        if (!searchInput) return;
+        
+        searchInput.removeAttribute('onkeypress');
+        
+        searchInput.addEventListener('input', function() {
+            searchBox.classList.add('searching');
+            
+            if (searchDebounceTimer) {
+                clearTimeout(searchDebounceTimer);
+            }
+            
+            const newSearchValue = this.value;
+            
+            searchDebounceTimer = setTimeout(function() {
+                currentSearch = newSearchValue;
+                currentPage = 1;
+                refreshData();
+            }, 300);
+        });
+    }
+    
     function filterByYear(year) {
         currentYear = year;
         currentPage = 1;
-        updateFilterTabs(year);
-        window.location.href = `?page=1&per_page=${currentPerPage}&search=${encodeURIComponent(currentSearch)}&year=${year}`;
-    }
-
-    function updateFilterTabs(year) {
-        const tabs = document.querySelectorAll('.filter-tab');
-        tabs.forEach((tab, index) => {
-            if (index === 0 && year === 0) tab.classList.add('active');
-            else if (year > 0 && index === year) tab.classList.add('active');
-            else tab.classList.remove('active');
+        
+        document.querySelectorAll('.filter-tab').forEach(tab => {
+            const tabYear = parseInt(tab.getAttribute('data-year'));
+            if (tabYear === year) {
+                tab.classList.add('active');
+            } else {
+                tab.classList.remove('active');
+            }
         });
-    }
-
-    function handleSearchKeypress(event) {
-        if (event.key === 'Enter') {
-            performSearch();
-        }
-    }
-
-    function performSearch() {
-        const searchInput = document.getElementById('searchInput');
-        currentSearch = searchInput.value;
-        currentPage = 1;
-        window.location.href = `?page=1&per_page=${currentPerPage}&search=${encodeURIComponent(currentSearch)}&year=${currentYear}`;
+        
+        refreshData();
     }
 
     function changePerPage(perPage) {
         currentPerPage = parseInt(perPage);
         currentPage = 1;
-        window.location.href = `?page=1&per_page=${currentPerPage}&search=${encodeURIComponent(currentSearch)}&year=${currentYear}`;
+        refreshData();
     }
 
     function clearFilters() {
         currentSearch = '';
         currentYear = 0;
         currentPage = 1;
-        window.location.href = `?page=1&per_page=${currentPerPage}`;
+        
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) searchInput.value = '';
+        
+        document.querySelectorAll('.filter-tab').forEach(tab => {
+            const tabYear = parseInt(tab.getAttribute('data-year'));
+            if (tabYear === 0) {
+                tab.classList.add('active');
+            } else {
+                tab.classList.remove('active');
+            }
+        });
+        
+        refreshData();
     }
 
     document.addEventListener('DOMContentLoaded', function() {
         initWebSocket();
-        setInterval(refreshData, 10000);
+        setupInstantSearch();
         
-        const searchInput = document.getElementById('searchInput');
-        if (searchInput) {
-            searchInput.addEventListener('keypress', handleSearchKeypress);
+        document.querySelectorAll('.filter-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                const year = parseInt(this.getAttribute('data-year'));
+                filterByYear(year);
+            });
+        });
+        
+        const perPageSelect = document.getElementById('perPageSelect');
+        if (perPageSelect) {
+            perPageSelect.addEventListener('change', function() {
+                changePerPage(this.value);
+            });
         }
+        
+        setInterval(refreshData, 10000);
     });
     
     window.addEventListener('beforeunload', function() {
         if (reconnectTimer) clearTimeout(reconnectTimer);
         if (ws) ws.close();
+        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
     });
     </script>
 </body>

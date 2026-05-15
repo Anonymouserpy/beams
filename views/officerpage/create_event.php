@@ -14,6 +14,53 @@ if (!isset($_SESSION['officer_id'])) {
     exit();
 }
 
+// ========== AUDIT LOG FUNCTION ==========
+function logAudit($conn, $officer_id, $action, $table_name, $record_id = null, $old_data = null, $new_data = null) {
+    $ip_address = $_SERVER['REMOTE_ADDR'] ?? null;
+    $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+    
+    if (is_array($old_data) || is_object($old_data)) {
+        $old_data = json_encode($old_data, JSON_UNESCAPED_UNICODE);
+    }
+    if (is_array($new_data) || is_object($new_data)) {
+        $new_data = json_encode($new_data, JSON_UNESCAPED_UNICODE);
+    }
+    
+    // Truncate if too long
+    if (strlen($old_data) > 60000) {
+        $old_data = substr($old_data, 0, 60000) . '...[TRUNCATED]';
+    }
+    if (strlen($new_data) > 60000) {
+        $new_data = substr($new_data, 0, 60000) . '...[TRUNCATED]';
+    }
+    
+    $query = "INSERT INTO audit_logs (officer_id, action, table_name, record_id, old_data, new_data, ip_address, user_agent) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    
+    $stmt = mysqli_prepare($conn, $query);
+    if ($stmt) {
+        mysqli_stmt_bind_param($stmt, "ssssssss", 
+            $officer_id, 
+            $action, 
+            $table_name, 
+            $record_id, 
+            $old_data, 
+            $new_data, 
+            $ip_address, 
+            $user_agent
+        );
+        
+        if (!mysqli_stmt_execute($stmt)) {
+            error_log("Audit log failed: " . mysqli_stmt_error($stmt));
+        }
+        mysqli_stmt_close($stmt);
+        return true;
+    } else {
+        error_log("Failed to prepare audit log statement: " . mysqli_error($conn));
+        return false;
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Helper Functions
 // -----------------------------------------------------------------------------
@@ -168,6 +215,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         $conn->commit();
 
+                        // ========== AUDIT: Log event creation ==========
+                        $audit_data = [
+                            'event_id' => $event_id,
+                            'event_name' => $event_name,
+                            'event_date' => $event_date,
+                            'event_type' => $event_type,
+                            'half_day_period' => $half_day_period,
+                            'location' => $location,
+                            'description' => $description,
+                            'created_by' => $_SESSION['officer_id'],
+                            'attendance_schedule' => [
+                                'am_login_start' => $am_login_start,
+                                'am_login_end' => $am_login_end,
+                                'am_logout_start' => $am_logout_start,
+                                'am_logout_end' => $am_logout_end,
+                                'pm_login_start' => $pm_login_start,
+                                'pm_login_end' => $pm_login_end,
+                                'pm_logout_start' => $pm_logout_start,
+                                'pm_logout_end' => $pm_logout_end
+                            ],
+                            'fine_settings' => [
+                                'miss_am_login' => $miss_am_login,
+                                'miss_am_logout' => $miss_am_logout,
+                                'miss_pm_login' => $miss_pm_login,
+                                'miss_pm_logout' => $miss_pm_logout
+                            ]
+                        ];
+                        logAudit($conn, $_SESSION['officer_id'], 'CREATE', 'events', $event_id, null, json_encode($audit_data));
+
                         // WebSocket broadcast
                         $wsData = [
                             'type' => 'EVENT_CREATED',
@@ -216,6 +292,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // -----------------------------------------------------------------------------
+// Log page access
+// -----------------------------------------------------------------------------
+logAudit($conn, $_SESSION['officer_id'], 'VIEW', 'create_event_page', null, null, 
+    json_encode(['action' => 'page_access', 'timestamp' => date('Y-m-d H:i:s'), 'page' => 'Create Event']));
+
+// -----------------------------------------------------------------------------
 // Prepare default values for form (if not set from POST)
 // -----------------------------------------------------------------------------
 $defaults = [
@@ -256,7 +338,7 @@ require "../sidebar/officer_sidebar.php";
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
         rel="stylesheet">
     <style>
-    /* Modern styling – keep your existing CSS but ensure it's consistent */
+    /* Modern styling */
     :root {
         --primary: #4361ee;
         --primary-dark: #3a56d4;
@@ -280,12 +362,14 @@ require "../sidebar/officer_sidebar.php";
 
     body {
         font-family: 'Inter', sans-serif;
-        background: #f5f7fb;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: var(--dark);
+        min-height: 100vh;
     }
+    
 
     .main-contents {
-        margin-left: 220px;
+        margin-left: 190px;
         padding: 30px;
         transition: var(--transition);
     }
@@ -540,7 +624,7 @@ require "../sidebar/officer_sidebar.php";
                 <div class="text-end">
                     <small class="text-white-50 d-block">Created by</small>
                     <span
-                        class="fw-semibold"><?php echo htmlspecialchars($_SESSION['officer_name'] ?? 'Officer'); ?></span>
+                        class="fw-semibold"><?php echo htmlspecialchars($_SESSION['full_name'] ?? $_SESSION['officer_id']); ?></span>
                 </div>
             </div>
 
@@ -772,8 +856,7 @@ require "../sidebar/officer_sidebar.php";
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    // Client-side logic to toggle sections based on event type and period
-    (function() {
+    // Client-side logic to toggle sections based on event type and period    (function() {
         const eventTypeSelect = document.getElementById('eventType');
         const periodContainer = document.getElementById('periodContainer');
         const amSection = document.getElementById('amSection');

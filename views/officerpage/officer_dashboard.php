@@ -66,6 +66,7 @@ $upcoming = $conn->query("
         --hover-shadow: 0 8px 30px -5px rgba(0, 0, 0, 0.12);
     }
 
+
     * {
         margin: 0;
         padding: 0;
@@ -78,14 +79,15 @@ $upcoming = $conn->query("
 
     body {
         font-family: 'Inter', sans-serif;
-        background: #f0f2f5;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: #2d3748;
         line-height: 1.5;
+        min-height: 100vh;
         overflow-x: hidden;
     }
 
     .main-contents {
-        margin-left: 220px;
+        margin-left: 190px;
         transition: var(--transition);
     }
 

@@ -150,9 +150,15 @@ $pastResult = $conn->query($pastQuery);
         gap: 1rem;
     }
 
+    .page-header span {
+        color: #fbfbfc;
+        font-weight: 500;
+    }
+
+
     .page-header h2 {
         font-weight: 700;
-        color: #0f172a;
+        color: #ffffff;
         font-size: 2rem;
     }
 
@@ -498,7 +504,7 @@ $pastResult = $conn->query($pastQuery);
             <!-- Page header -->
             <div class="page-header">
                 <h2><i class="fas fa-calendar-alt"></i>Events</h2>
-                <span class="text-muted small"><i class="far fa-calendar-alt me-1"></i><?= date('l, F j, Y') ?></span>
+                <span class="small"><i class="far fa-calendar-alt me-1"></i><?= date('l, F j, Y') ?></span>
             </div>
 
             <!-- Tabs & Search -->

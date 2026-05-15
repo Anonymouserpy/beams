@@ -10,6 +10,60 @@ if (!isset($_SESSION['officer_id'])) {
     exit();
 }
 
+// ========== AUDIT LOG FUNCTION WITH DEBUGGING ==========
+function logAudit($conn, $officer_id, $action, $table_name, $record_id = null, $old_data = null, $new_data = null) {
+    $ip_address = $_SERVER['REMOTE_ADDR'] ?? null;
+    $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+    
+    // Convert arrays/objects to JSON if needed
+    if (is_array($old_data) || is_object($old_data)) {
+        $old_data = json_encode($old_data, JSON_UNESCAPED_UNICODE);
+    }
+    if (is_array($new_data) || is_object($new_data)) {
+        $new_data = json_encode($new_data, JSON_UNESCAPED_UNICODE);
+    }
+    
+    // Check for null before using strlen
+    if ($old_data !== null && strlen($old_data) > 60000) {
+        $old_data = substr($old_data, 0, 60000) . '...[TRUNCATED]';
+    }
+    if ($new_data !== null && strlen($new_data) > 60000) {
+        $new_data = substr($new_data, 0, 60000) . '...[TRUNCATED]';
+    }
+    
+    $query = "INSERT INTO audit_logs (officer_id, action, table_name, record_id, old_data, new_data, ip_address, user_agent) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    
+    $stmt = mysqli_prepare($conn, $query);
+    if ($stmt) {
+        mysqli_stmt_bind_param($stmt, "ssssssss", 
+            $officer_id, 
+            $action, 
+            $table_name, 
+            $record_id, 
+            $old_data, 
+            $new_data, 
+            $ip_address, 
+            $user_agent
+        );
+        
+        if (!mysqli_stmt_execute($stmt)) {
+            error_log("Audit log failed: " . mysqli_stmt_error($stmt));
+            // Also log to a debug file
+            $debug_log = __DIR__ . '/audit_debug.log';
+            file_put_contents($debug_log, date('Y-m-d H:i:s') . " - Audit Error: " . mysqli_stmt_error($stmt) . "\n", FILE_APPEND);
+            return false;
+        }
+        mysqli_stmt_close($stmt);
+        return true;
+    } else {
+        error_log("Failed to prepare audit log statement: " . mysqli_error($conn));
+        $debug_log = __DIR__ . '/audit_debug.log';
+        file_put_contents($debug_log, date('Y-m-d H:i:s') . " - Prepare Error: " . mysqli_error($conn) . "\n", FILE_APPEND);
+        return false;
+    }
+}
+
 /**
  * Send a message to the WebSocket server via internal TCP socket.
  * @param array $data
@@ -24,6 +78,10 @@ function notifyWebSocket($data)
         error_log("WebSocket notification failed: $errstr ($errno)");
     }
 }
+
+// --- Log page access ---
+logAudit($conn, $_SESSION['officer_id'], 'VIEW', 'officer_registration_page', null, null, 
+    json_encode(['action' => 'page_access', 'timestamp' => date('Y-m-d H:i:s'), 'page' => 'Officer Registration']));
 
 // Handle AJAX registration request
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -71,6 +129,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $insert->bind_param("ssss", $officer_id, $full_name, $position, $hashed_password);
 
         if ($insert->execute()) {
+            // Get the newly created officer data for audit
+            $new_officer = [
+                'officer_id' => $officer_id,
+                'full_name' => $full_name,
+                'position' => $position,
+                'created_by' => $_SESSION['officer_id'],
+                'created_by_name' => $_SESSION['full_name'] ?? 'Unknown',
+                'created_at' => date('Y-m-d H:i:s')
+            ];
+            
+            // AUDIT: Log officer creation (excluding password for security)
+            logAudit($conn, $_SESSION['officer_id'], 'CREATE', 'officers', $officer_id, null, json_encode($new_officer));
+            
             // Send WebSocket notification
             notifyWebSocket([
                 'type'    => 'OFFICER_CREATED',
@@ -82,7 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             echo json_encode(['status' => 'success', 'message' => 'Officer registered successfully.']);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Registration failed. Please try again.']);
+            echo json_encode(['status' => 'error', 'message' => 'Registration failed: ' . $conn->error]);
         }
         $insert->close();
     } else {
@@ -114,8 +185,12 @@ include __DIR__ . '/../sidebar/officer_sidebar.php';
     }
 
     body {
-        background-color: #f4f6f9;
+        font-family: 'Inter', sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: var(--dark);
+        min-height: 100vh;
     }
+
 
     .registration-card {
         border: none;
@@ -137,7 +212,7 @@ include __DIR__ . '/../sidebar/officer_sidebar.php';
     }
 
     .main-contents {
-        margin-left: 220px;
+        margin-left: 190px;
         padding: 30px;
         transition: var(--transition);
     }
@@ -443,7 +518,7 @@ include __DIR__ . '/../sidebar/officer_sidebar.php';
                         form.reset();
                         matchIcon.style.display = 'none';
                         setTimeout(() => {
-                            window.location.href = 'officer_registration.php';
+                            window.location.href = 'manage_officer.php';
                         }, 2000);
                     } else {
                         showError(data.message);
@@ -453,7 +528,7 @@ include __DIR__ . '/../sidebar/officer_sidebar.php';
                     submitBtn.classList.remove('btn-loading');
                     submitBtn.disabled = false;
                     console.error('Fetch error:', error);
-                    showError('Invalid credentials.');
+                    showError('Network error. Please try again.');
                 });
         });
 

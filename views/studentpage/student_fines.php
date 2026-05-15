@@ -146,9 +146,15 @@ $stmt->close();
 
     .page-header h2 {
         font-weight: 700;
-        color: #0f172a;
+        color: #ffffff;
         font-size: 2rem;
     }
+
+    .page-header span {
+        color: #fbfbfc;
+        font-weight: 500;
+    }
+
 
     .page-header h2 i {
         color: var(--primary);
@@ -534,7 +540,7 @@ $stmt->close();
             <!-- Page header -->
             <div class="page-header">
                 <h2><i class="fas fa-coins"></i>Fines</h2>
-                <span class="text-muted small"><i class="far fa-calendar-alt me-1"></i><?= date('l, F j, Y') ?></span>
+                <span class="small"><i class="far fa-calendar-alt me-1"></i><?= date('l, F j, Y') ?></span>
             </div>
 
             <!-- Stats cards -->

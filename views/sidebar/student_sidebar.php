@@ -30,7 +30,13 @@ if (isset($_SESSION['student_id'])) {
             $result = $stmt->get_result();
             if ($row = $result->fetch_assoc()) {
                 $studentName = $row['full_name'];
-                $studentInitials = strtoupper(substr($studentName, 0, 1));
+                // Get proper initials (first two letters or first letters of first two names)
+                $nameParts = explode(' ', $studentName);
+                if (count($nameParts) >= 2) {
+                    $studentInitials = strtoupper(substr($nameParts[0], 0, 1) . substr($nameParts[1], 0, 1));
+                } else {
+                    $studentInitials = strtoupper(substr($studentName, 0, 2));
+                }
             }
             $stmt->close();
         }
@@ -40,6 +46,9 @@ if (isset($_SESSION['student_id'])) {
         error_log("Student sidebar: DB connection failed - " . $sidebarConn->connect_error);
     }
 }
+
+// Determine current page for active highlighting
+$currentFile = basename($_SERVER['PHP_SELF']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -48,25 +57,37 @@ if (isset($_SESSION['student_id'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Sidebar</title>
-    <!-- Bootstrap, Font Awesome, Google Fonts (already in parent page, but kept for completeness) -->
+    <!-- Bootstrap, Font Awesome, Google Fonts -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
     :root {
-        --sidebar-bg: rgba(18, 25, 35, 0.98);
-        --sidebar-glass: rgba(255, 255, 255, 0.03);
-        --sidebar-hover: rgba(255, 255, 255, 0.06);
-        --sidebar-active: #33A1E0;
-        --sidebar-text: rgba(255, 255, 255, 0.85);
-        --sidebar-text-muted: rgba(255, 255, 255, 0.55);
-        --sidebar-width: 200px;
-        --sidebar-width: 230px;
-        --transition: all 0.2s ease;
+        --bg-dark: #0f172a;
+        --bg-card: #1e293b;
+        --primary-blue: #3b82f6;
+        --primary-blue-dark: #2563eb;
+        --primary-cyan: #06b6d4;
+        --text-primary: #f1f5f9;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --border-color: #334155;
+        --hover-bg: #334155;
+        --active-bg: rgba(59, 130, 246, 0.2);
+        --active-border: #3b82f6;
+        --sidebar-width: 190px;
+        --transition: all 0.25s ease-in-out;
     }
 
     body {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        background: var(--bg-dark);
     }
 
     /* Desktop sidebar */
@@ -76,18 +97,16 @@ if (isset($_SESSION['student_id'])) {
         left: 0;
         width: var(--sidebar-width);
         height: 100vh;
-        background: var(--sidebar-bg);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        color: var(--sidebar-text);
-        box-shadow: 2px 0 20px rgba(0, 0, 0, 0.3);
+        background: var(--bg-card);
+        color: var(--text-primary);
         overflow-y: auto;
         transition: transform 0.3s ease;
         z-index: 1030;
-        border-right: 1px solid rgba(255, 255, 255, 0.05);
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
     }
 
-    /* Hide on mobile */
     @media (max-width: 991.98px) {
         .desktop-sidebar {
             transform: translateX(-100%);
@@ -95,62 +114,101 @@ if (isset($_SESSION['student_id'])) {
         }
     }
 
-    .sidebar-inner {
+    /* Sidebar Header / Logo */
+    .sidebar-header {
+        padding: 1.75rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 1.5rem;
+    }
+
+    .logo {
         display: flex;
-        flex-direction: column;
-        height: 100%;
-        padding: 2rem 1.2rem;
+        align-items: center;
+        gap: 0.7rem;
     }
 
-    /* Profile section */
-    .sidebar-profile {
-        text-align: center;
-        padding-bottom: 2rem;
-        margin-bottom: 2rem;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
-    .profile-avatar {
-        width: 90px;
-        height: 90px;
-        margin: 0 auto 1.2rem;
-        background: linear-gradient(135deg, #33A1E0, #1d4e6b);
-        border-radius: 24px;
+    .logo-icon {
+        width: 40px;
+        height: 40px;
+        background: linear-gradient(135deg, var(--primary-blue), var(--primary-cyan));
+        border-radius: 12px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 2.8rem;
-        font-weight: 600;
+        font-size: 0.95rem;
+        font-weight: 700;
         color: white;
-        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
-        border: 2px solid rgba(255, 255, 255, 0.15);
-        transition: var(--transition);
     }
 
-    .profile-avatar:hover {
-        transform: scale(1.02);
-        border-color: var(--sidebar-active);
+    .logo-text {
+        font-size: 0.95rem;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        background: linear-gradient(135deg, white, var(--text-secondary));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
     }
 
-    .profile-name {
-        font-size: 1.3rem;
+    .logo-sub {
+        font-size: 0.7rem;
         font-weight: 600;
-        margin-bottom: 0.25rem;
-        color: white;
-        letter-spacing: -0.01em;
+        color: var(--text-muted);
+        letter-spacing: 0.5px;
     }
 
-    .profile-role {
-        font-size: 0.9rem;
-        color: var(--sidebar-text-muted);
-        letter-spacing: 0.3px;
+    /* Welcome Section */
+    .welcome-section {
+        padding: 0 1.25rem 1.5rem 1.25rem;
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 1.5rem;
+    }
+
+    .welcome-greeting {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: var(--text-muted);
         text-transform: uppercase;
-        font-weight: 500;
+        letter-spacing: 1px;
+        margin-bottom: 0.5rem;
+    }
+
+    .welcome-name {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: 0.35rem;
+        line-height: 1.3;
+    }
+
+    .welcome-role {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: var(--primary-blue);
+        background: rgba(59, 130, 246, 0.1);
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
     }
 
     /* Navigation */
     .sidebar-nav {
         flex: 1;
+        padding: 0 0.75rem;
+    }
+
+    .nav-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .nav-section-title {
+        font-size: 0.75rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--text-muted);
+        padding: 0 1rem;
+        margin-bottom: 0.75rem;
     }
 
     .nav {
@@ -160,116 +218,93 @@ if (isset($_SESSION['student_id'])) {
     }
 
     .nav-item {
-        margin-bottom: 0.3rem;
+        margin-bottom: 0.25rem;
     }
 
     .nav-link {
         display: flex;
         align-items: center;
-        padding: 0.8rem 1rem;
-        border-radius: 14px;
-        color: var(--sidebar-text);
+        gap: 0.82rem;
+        padding: 0.75rem 1rem;
+        border-radius: 12px;
+        color: var(--text-secondary);
         text-decoration: none;
+        font-size: 0.95rem;
+        font-weight: 700;
         transition: var(--transition);
-        font-weight: 500;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .nav-link::before {
-        content: '';
-        position: absolute;
-        left: 0;
-        top: 0;
-        height: 100%;
-        width: 0;
-        background: var(--sidebar-glass);
-        transition: width 0.2s ease;
-        z-index: -1;
-    }
-
-    .nav-link:hover::before {
         width: 100%;
+        position: relative;
     }
 
     .nav-link i {
         width: 28px;
-        font-size: 1.3rem;
-        font-size: 1rem;
-        margin-right: 14px;
+        font-size: 0.95rem;
         text-align: center;
+        color: var(--text-muted);
         transition: var(--transition);
-        color: var(--sidebar-text-muted);
+    }
+
+    .nav-link span {
+        flex: 1;
+        font-size: 0.95rem;
+        font-weight: 700;
+    }
+
+    .nav-link:hover {
+        background: var(--hover-bg);
+        color: var(--text-primary);
     }
 
     .nav-link:hover i {
-        color: var(--sidebar-active);
-        transform: translateX(2px);
+        color: var(--primary-blue);
     }
 
+    /* ACTIVE STATE - Matching Officer Sidebar Style */
     .nav-link.active {
-        background: rgba(51, 161, 224, 0.12);
-        border-left: 3px solid var(--sidebar-active);
+        background: var(--active-bg, 0.2);
         color: white;
+        border-left: 3px solid var(--active-border);
     }
-
+    
     .nav-link.active i {
-        color: var(--sidebar-active);
-    }
-
-    .nav-link.active::after {
-        content: '';
-        position: absolute;
-        right: 1rem;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--sidebar-active);
-        box-shadow: 0 0 10px var(--sidebar-active);
-        animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-        0% {
-            opacity: 1;
-            transform: translateY(-50%) scale(1);
-        }
-
-        50% {
-            opacity: 0.6;
-            transform: translateY(-50%) scale(1.3);
-        }
-
-        100% {
-            opacity: 1;
-            transform: translateY(-50%) scale(1);
-        }
+        color: var(--primary-blue);
     }
 
     /* Logout button */
-    .nav-item.logout {
-        margin-top: 2rem;
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
-        padding-top: 1.5rem;
+    .sidebar-footer {
+        padding: 1.25rem 1rem;
+        border-top: 1px solid var(--border-color);
+        margin-top: auto;
     }
 
-    .nav-link.logout-link {
-        color: #ff8a8a;
+    .logout-link {
+        display: flex;
+        align-items: center;
+        gap: 0.82rem;
+        padding: 0.75rem 1rem;
+        border-radius: 12px;
+        color: #f87171;
+        text-decoration: none;
+        font-size: 0.95rem;
+        font-weight: 700;
+        transition: var(--transition);
+        width: 100%;
     }
 
-    .nav-link.logout-link i {
-        color: #ff8a8a;
+    .logout-link i {
+        width: 28px;
+        font-size: 0.95rem;
+        color: #f87171;
     }
 
-    .nav-link.logout-link:hover {
-        background: rgba(255, 107, 107, 0.1);
-        color: #ffa8a8;
+    .logout-link span {
+        font-size: 0.95rem;
+        font-weight: 700;
     }
 
-    .nav-link.logout-link:hover i {
-        color: #ffa8a8;
+    .logout-link:hover {
+        background: rgba(248, 113, 113, 0.1);
+        color: #fca5a5;
     }
 
     /* Main content adjustment */
@@ -288,38 +323,38 @@ if (isset($_SESSION['student_id'])) {
     /* Mobile header */
     .mobile-header {
         display: none;
-        background: var(--sidebar-bg);
-        backdrop-filter: blur(10px);
-        color: white;
-        padding: 0.9rem 1.5rem;
+        background: var(--bg-card);
+        padding: 1rem 1.25rem;
         align-items: center;
         justify-content: space-between;
         position: sticky;
         top: 0;
         z-index: 1025;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        border-bottom: 1px solid var(--border-color);
     }
 
     .mobile-header .menu-toggle {
         background: none;
         border: none;
-        color: white;
-        font-size: 1.6rem;
-        font-size: 1rem;
+        color: var(--text-primary);
+        font-size: 1.4rem;
         cursor: pointer;
-        padding: 0.3rem 0.6rem;
+        padding: 0.5rem;
         border-radius: 8px;
         transition: background 0.2s;
     }
 
     .mobile-header .menu-toggle:hover {
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--hover-bg);
     }
 
     .mobile-header .logo {
-        font-weight: 600;
-        font-size: 1.2rem;
-        letter-spacing: 0.5px;
+        font-weight: 800;
+        font-size: 1.25rem;
+        background: linear-gradient(135deg, white, var(--text-secondary));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
     }
 
     @media (max-width: 991.98px) {
@@ -330,40 +365,42 @@ if (isset($_SESSION['student_id'])) {
 
     /* Offcanvas sidebar */
     .offcanvas-sidebar {
-        background: var(--sidebar-bg) !important;
-        backdrop-filter: blur(10px);
-        color: var(--sidebar-text);
+        background: var(--bg-card) !important;
+        width: 280px !important;
+        border-right: 1px solid var(--border-color);
+    }
+
+    .offcanvas-sidebar .offcanvas-header {
+        border-bottom: 1px solid var(--border-color);
+        padding: 1.25rem;
+    }
+
+    .offcanvas-sidebar .offcanvas-title {
+        color: var(--text-primary);
+        font-weight: 800;
+        font-size: 1.25rem;
     }
 
     .offcanvas-sidebar .btn-close {
-        filter: invert(1) grayscale(100%) brightness(200%);
-        opacity: 0.8;
-    }
-
-    .offcanvas-sidebar .btn-close:hover {
-        opacity: 1;
+        filter: brightness(0) invert(1);
+        opacity: 0.7;
     }
 
     /* Scrollbar styling */
     .desktop-sidebar::-webkit-scrollbar,
     .offcanvas-sidebar::-webkit-scrollbar {
-        width: 5px;
+        width: 4px;
     }
 
     .desktop-sidebar::-webkit-scrollbar-track,
     .offcanvas-sidebar::-webkit-scrollbar-track {
-        background: rgba(0, 0, 0, 0.2);
+        background: var(--border-color);
     }
 
     .desktop-sidebar::-webkit-scrollbar-thumb,
     .offcanvas-sidebar::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 10px;
-    }
-
-    .desktop-sidebar::-webkit-scrollbar-thumb:hover,
-    .offcanvas-sidebar::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.25);
+        background: var(--primary-blue);
+        border-radius: 4px;
     }
     </style>
 </head>
@@ -376,119 +413,191 @@ if (isset($_SESSION['student_id'])) {
             <i class="fas fa-bars"></i>
         </button>
         <span class="logo"><i class="fas fa-user-graduate me-2"></i>Student Portal</span>
-        <div style="width: 28px;"></div>
+        <div style="width: 32px;"></div>
     </div>
 
     <!-- Desktop Sidebar -->
     <div class="desktop-sidebar">
-        <div class="sidebar-inner">
-            <div class="sidebar-profile">
-                <div class="profile-avatar">
-                    <?= htmlspecialchars($studentInitials) ?>
+        <!-- Logo / Header -->
+        <div class="sidebar-header">
+            <div class="logo">
+                <div class="logo-icon">B</div>
+                <div>
+                    <div class="logo-text">BEAMS</div>
+                    <div class="logo-sub">STUDENT PORTAL</div>
                 </div>
-                <div class="profile-role"><?= htmlspecialchars($studentRole) ?></div>
             </div>
+        </div>
 
-            <div class="sidebar-nav">
+        <!-- Welcome Section -->
+        <div class="welcome-section">
+            <div class="welcome-greeting">
+                <i class="fas fa-hand-wave me-1"></i> Welcome back,
+            </div>
+            <div class="welcome-name"><?= htmlspecialchars($studentName) ?></div>
+            <span class="welcome-role">
+                <i class="fas fa-user-graduate me-1"></i> <?= htmlspecialchars($studentRole) ?>
+            </span>
+        </div>
+
+        <!-- Navigation - Active state matching Officer Sidebar -->
+        <div class="sidebar-nav">
+            <!-- MAIN MENU Section -->
+            <div class="nav-section">
+                <div class="nav-section-title">MAIN MENU</div>
                 <ul class="nav">
                     <li class="nav-item">
-                        <a href="../studentpage/student_dashboard.php" class="nav-link">
-                            <i class="fas fa-chart-pie"></i>
+                        <a href="../studentpage/student_dashboard.php" class="nav-link <?php echo $currentFile == 'student_dashboard.php' ? 'active' : ''; ?>">
+                            <i class="fas fa-tachometer-alt"></i>
                             <span>Dashboard</span>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a href="../studentpage/student_event.php" class="nav-link">
-                            <i class="fas fa-calendar-alt"></i>
-                            <span>Events</span>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a href="../studentpage/student_attendance.php" class="nav-link">
-                            <i class="fas fa-clock"></i>
-                            <span>Attendance</span>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a href="../studentpage/student_fines.php" class="nav-link">
-                            <i class="fas fa-coins"></i>
-                            <span>Fines</span>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a href="../studentpage/student_profile.php" class="nav-link">
-                            <i class="fas fa-user-cog"></i>
-                            <span>My Profile</span>
-                        </a>
-                    </li>
-                    <li class="nav-item logout">
-                        <a href="../../Auth/logout.php" class="nav-link logout-link">
-                            <i class="fas fa-sign-out-alt"></i>
-                            <span>Logout</span>
                         </a>
                     </li>
                 </ul>
             </div>
+
+            <!-- ACADEMICS Section -->
+            <div class="nav-section">
+                <div class="nav-section-title">ACADEMICS</div>
+                <ul class="nav">
+                    <li class="nav-item">
+                        <a href="../studentpage/student_attendance.php" class="nav-link <?php echo $currentFile == 'student_attendance.php' ? 'active' : ''; ?>">
+                            <i class="fas fa-calendar-check"></i>
+                            <span>Attendance</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="../studentpage/student_fines.php" class="nav-link <?php echo $currentFile == 'student_fines.php' ? 'active' : ''; ?>">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <span>Fines</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- EVENTS Section -->
+            <div class="nav-section">
+                <div class="nav-section-title">EVENTS</div>
+                <ul class="nav">
+                    <li class="nav-item">
+                        <a href="../studentpage/student_event.php" class="nav-link <?php echo $currentFile == 'student_event.php' ? 'active' : ''; ?>">
+                            <i class="fas fa-calendar-alt"></i>
+                            <span>Events</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- SETTINGS Section -->
+            <div class="nav-section">
+                <div class="nav-section-title">SETTINGS</div>
+                <ul class="nav">
+                    <li class="nav-item">
+                        <a href="../studentpage/student_profile.php" class="nav-link <?php echo $currentFile == 'student_profile.php' ? 'active' : ''; ?>">
+                            <i class="fas fa-user-cog"></i>
+                            <span>My Profile</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Footer with Logout -->
+        <div class="sidebar-footer">
+            <a href="../../Auth/logout.php" class="logout-link">
+                <i class="fas fa-sign-out-alt"></i>
+                <span>Logout</span>
+            </a>
         </div>
     </div>
 
     <!-- Offcanvas Sidebar (Mobile) -->
     <div class="offcanvas offcanvas-start offcanvas-sidebar" tabindex="-1" id="offcanvasSidebar">
         <div class="offcanvas-header">
-            <h5 class="offcanvas-title text-white">
-                <i class="fas fa-user-graduate me-2"></i>Student Portal
-            </h5>
+            <div class="logo">
+                <div class="logo-icon">B</div>
+                <div>
+                    <div class="logo-text">BEAMS</div>
+                    <div class="logo-sub">STUDENT PORTAL</div>
+                </div>
+            </div>
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
         </div>
         <div class="offcanvas-body p-0">
-            <div class="sidebar-inner" style="padding: 1.2rem;">
-                <div class="sidebar-profile">
-                    <div class="profile-avatar">
-                        <?= htmlspecialchars($studentInitials) ?>
+            <div style="padding: 1.25rem;">
+                <!-- Welcome Section -->
+                <div class="welcome-section" style="padding: 0 0 1rem 0;">
+                    <div class="welcome-greeting">
+                        <i class="fas fa-hand-wave me-1"></i> Welcome back,
                     </div>
-                    <div class="profile-name"><?= htmlspecialchars($studentName) ?></div>
-                    <div class="profile-role"><?= htmlspecialchars($studentRole) ?></div>
+                    <div class="welcome-name"><?= htmlspecialchars($studentName) ?></div>
+                    <span class="welcome-role">
+                        <i class="fas fa-user-graduate me-1"></i> <?= htmlspecialchars($studentRole) ?>
+                    </span>
                 </div>
 
-                <div class="sidebar-nav">
-                    <ul class="nav">
-                        <li class="nav-item">
-                            <a href="../studentpage/student_dashboard.php" class="nav-link">
-                                <i class="fas fa-chart-pie"></i>
-                                <span>Dashboard</span>
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="/Beams/Views/Students/StudentEvents.php" class="nav-link">
-                                <i class="fas fa-calendar-alt"></i>
-                                <span>Events</span>
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="/Beams/Views/Students/StudentAttendance.php" class="nav-link">
-                                <i class="fas fa-clock"></i>
-                                <span>Attendance</span>
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="/Beams/Views/Students/StudentFines.php" class="nav-link">
-                                <i class="fas fa-coins"></i>
-                                <span>Fines</span>
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="/Beams/Views/Students/StudentProfile.php" class="nav-link">
-                                <i class="fas fa-user-cog"></i>
-                                <span>My Profile</span>
-                            </a>
-                        </li>
-                        <li class="nav-item logout">
-                            <a href="../../Auth/logout.php" class="nav-link logout-link">
-                                <i class="fas fa-sign-out-alt"></i>
-                                <span>Logout</span>
-                            </a>
-                        </li>
-                    </ul>
+                <!-- Navigation for Mobile -->
+                <div class="sidebar-nav" style="padding: 0;">
+                    <div class="nav-section">
+                        <div class="nav-section-title">MAIN MENU</div>
+                        <ul class="nav">
+                            <li class="nav-item">
+                                <a href="../studentpage/student_dashboard.php" class="nav-link">
+                                    <i class="fas fa-tachometer-alt"></i>
+                                    <span>Dashboard</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="nav-section">
+                        <div class="nav-section-title">ACADEMICS</div>
+                        <ul class="nav">
+                            <li class="nav-item">
+                                <a href="../studentpage/student_attendance.php" class="nav-link">
+                                    <i class="fas fa-calendar-check"></i>
+                                    <span>Attendance</span>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="../studentpage/student_fines.php" class="nav-link">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <span>Fines</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="nav-section">
+                        <div class="nav-section-title">EVENTS</div>
+                        <ul class="nav">
+                            <li class="nav-item">
+                                <a href="../studentpage/student_event.php" class="nav-link">
+                                    <i class="fas fa-calendar-alt"></i>
+                                    <span>Events</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="nav-section">
+                        <div class="nav-section-title">SETTINGS</div>
+                        <ul class="nav">
+                            <li class="nav-item">
+                                <a href="../studentpage/student_profile.php" class="nav-link">
+                                    <i class="fas fa-user-cog"></i>
+                                    <span>My Profile</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Logout -->
+                <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                    <a href="../../Auth/logout.php" class="logout-link" style="padding-left: 0;">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>Logout</span>
+                    </a>
                 </div>
             </div>
         </div>
@@ -501,8 +610,12 @@ if (isset($_SESSION['student_id'])) {
     <script>
     document.addEventListener('DOMContentLoaded', function() {
         const currentPath = window.location.pathname;
+        const currentFile = currentPath.split('/').pop();
+        
+        // Highlight active link in both desktop and mobile sidebars
         document.querySelectorAll('.nav-link').forEach(link => {
-            if (link.getAttribute('href') === currentPath) {
+            const href = link.getAttribute('href');
+            if (href && (href === currentFile || href.includes(currentFile))) {
                 link.classList.add('active');
             }
         });

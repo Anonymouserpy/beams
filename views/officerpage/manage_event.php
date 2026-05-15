@@ -31,6 +31,54 @@ if (!isset($_SESSION['officer_id'])) {
     exit();
 }
 
+// ========== AUDIT LOG FUNCTION ==========
+function logAudit($conn, $officer_id, $action, $table_name, $record_id = null, $old_data = null, $new_data = null) {
+    $ip_address = $_SERVER['REMOTE_ADDR'] ?? null;
+    $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+    
+    // Convert arrays/objects to JSON if needed
+    if (is_array($old_data) || is_object($old_data)) {
+        $old_data = json_encode($old_data, JSON_UNESCAPED_UNICODE);
+    }
+    if (is_array($new_data) || is_object($new_data)) {
+        $new_data = json_encode($new_data, JSON_UNESCAPED_UNICODE);
+    }
+    
+    // FIX: Check for null before using strlen
+    if ($old_data !== null && strlen($old_data) > 60000) {
+        $old_data = substr($old_data, 0, 60000) . '...[TRUNCATED]';
+    }
+    if ($new_data !== null && strlen($new_data) > 60000) {
+        $new_data = substr($new_data, 0, 60000) . '...[TRUNCATED]';
+    }
+    
+    $query = "INSERT INTO audit_logs (officer_id, action, table_name, record_id, old_data, new_data, ip_address, user_agent) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    
+    $stmt = mysqli_prepare($conn, $query);
+    if ($stmt) {
+        mysqli_stmt_bind_param($stmt, "ssssssss", 
+            $officer_id, 
+            $action, 
+            $table_name, 
+            $record_id, 
+            $old_data, 
+            $new_data, 
+            $ip_address, 
+            $user_agent
+        );
+        
+        if (!mysqli_stmt_execute($stmt)) {
+            error_log("Audit log failed: " . mysqli_stmt_error($stmt));
+        }
+        mysqli_stmt_close($stmt);
+        return true;
+    } else {
+        error_log("Failed to prepare audit log statement: " . mysqli_error($conn));
+        return false;
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Helper Functions
 // -----------------------------------------------------------------------------
@@ -94,6 +142,9 @@ function processEventUpdate(mysqli $conn, array $post): array {
         return ['success' => false, 'message' => 'Invalid event ID.'];
     }
 
+    // Get old event data before update for audit
+    $old_event = getEventDetails($conn, $eventId);
+    
     // Sanitize inputs
     $eventName = trim($post['event_name'] ?? '');
     $eventDate = trim($post['event_date'] ?? '');
@@ -183,6 +234,55 @@ function processEventUpdate(mysqli $conn, array $post): array {
 
         $conn->commit();
 
+        // ========== AUDIT: Log event update ==========
+        $new_event_data = [
+            'event_id' => $eventId,
+            'event_name' => $eventName,
+            'event_date' => $eventDate,
+            'event_type' => $eventType,
+            'half_day_period' => $halfDayPeriod,
+            'location' => $location,
+            'description' => $description,
+            'schedule' => [
+                'am_login_start' => $amLoginStart,
+                'am_login_end' => $amLoginEnd,
+                'am_logout_start' => $amLogoutStart,
+                'am_logout_end' => $amLogoutEnd,
+                'pm_login_start' => $pmLoginStart,
+                'pm_login_end' => $pmLoginEnd,
+                'pm_logout_start' => $pmLogoutStart,
+                'pm_logout_end' => $pmLogoutEnd
+            ],
+            'fines' => [
+                'miss_am_login' => $missAmLogin,
+                'miss_am_logout' => $missAmLogout,
+                'miss_pm_login' => $missPmLogin,
+                'miss_pm_logout' => $missPmLogout
+            ]
+        ];
+        
+        // Build changes array for audit
+        $changes = [];
+        if ($old_event['event_name'] != $eventName) {
+            $changes['event_name'] = ['old' => $old_event['event_name'], 'new' => $eventName];
+        }
+        if ($old_event['event_date'] != $eventDate) {
+            $changes['event_date'] = ['old' => $old_event['event_date'], 'new' => $eventDate];
+        }
+        if (($old_event['event_type'] . '_' . $old_event['half_day_period']) != $eventTypeRadio) {
+            $changes['event_type'] = ['old' => $old_event['event_type'] . ($old_event['half_day_period'] ? ' - ' . strtoupper($old_event['half_day_period']) : ''), 'new' => $eventTypeRadio];
+        }
+        if ($old_event['location'] != $location) {
+            $changes['location'] = ['old' => $old_event['location'], 'new' => $location];
+        }
+        if ($old_event['description'] != $description) {
+            $changes['description'] = ['old' => $old_event['description'], 'new' => $description];
+        }
+        
+        logAudit($conn, $_SESSION['officer_id'], 'UPDATE', 'events', $eventId, 
+            json_encode(['old' => $old_event, 'changes' => $changes]), 
+            json_encode($new_event_data));
+
         // WebSocket broadcast
         $wsData = [
             'type' => 'EVENT_UPDATED',
@@ -227,7 +327,7 @@ function processEventUpdate(mysqli $conn, array $post): array {
 function deleteEvent(mysqli $conn, int $eventId): bool {
     $conn->begin_transaction();
     try {
-        $event = getEventDetails($conn, $eventId); // for broadcast
+        $event = getEventDetails($conn, $eventId); // for audit and broadcast
 
         $tables = ['event_fines', 'attendance_schedule', 'attendance'];
         foreach ($tables as $table) {
@@ -244,6 +344,11 @@ function deleteEvent(mysqli $conn, int $eventId): bool {
         $stmt->execute();
 
         $conn->commit();
+
+        // ========== AUDIT: Log event deletion ==========
+        logAudit($conn, $_SESSION['officer_id'], 'DELETE', 'events', $eventId, 
+            json_encode($event), 
+            json_encode(['action' => 'deleted', 'deleted_by' => $_SESSION['officer_id'], 'deleted_at' => date('Y-m-d H:i:s')]));
 
         if ($event) {
             sendWebSocketMessage([
@@ -337,6 +442,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['event_id']) && (int)$
 }
 
 // -----------------------------------------------------------------------------
+// Log page access
+// -----------------------------------------------------------------------------
+logAudit($conn, $_SESSION['officer_id'], 'VIEW', 'manage_events_page', null, null, 
+    json_encode(['action' => 'page_access', 'timestamp' => date('Y-m-d H:i:s'), 'page' => 'Manage Events']));
+
+// -----------------------------------------------------------------------------
 // Fetch Events for Display
 // -----------------------------------------------------------------------------
 $events = $conn->query("
@@ -387,15 +498,17 @@ include "../sidebar/officer_sidebar.php";
         box-sizing: border-box;
     }
 
+
     body {
         font-family: 'Inter', sans-serif;
-        background: #f5f7fb;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: var(--dark);
         overflow-x: hidden;
+        min-height: 100vh;
     }
 
     .main-contents {
-        margin-left: 220px;
+        margin-left: 190px;
         padding: 30px;
         transition: var(--transition);
     }
@@ -412,6 +525,7 @@ include "../sidebar/officer_sidebar.php";
         margin-bottom: 30px;
     }
 
+
     .breadcrumb {
         background: transparent;
         padding: 0;
@@ -419,7 +533,7 @@ include "../sidebar/officer_sidebar.php";
     }
 
     .breadcrumb-item a {
-        color: var(--primary);
+        color: var(--light);
         text-decoration: none;
         font-weight: 500;
     }
@@ -428,11 +542,11 @@ include "../sidebar/officer_sidebar.php";
         font-size: 2rem;
         font-weight: 700;
         margin-bottom: 8px;
-        color: var(--dark);
+        color: var(--light);
     }
 
     .page-subtitle {
-        color: var(--gray);
+        color: var(--light);
         font-size: 0.95rem;
     }
 
