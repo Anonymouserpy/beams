@@ -8,6 +8,7 @@ if (!isset($_SESSION['officer_id'])) {
     exit();
 }
 
+
 $officer_id = $_SESSION['officer_id'];
 
 /* TOTAL STUDENTS */

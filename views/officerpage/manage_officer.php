@@ -1054,7 +1054,7 @@ $officerCount = $totalOfficers - $adminCount;
                 basicData.append('full_name', $('#edit_full_name').val());
                 basicData.append('position', $('#edit_position').val());
                 
-                fetch(window.location.pathname, {
+                fetch('manage_officers.php', {
                     method: 'POST',
                     body: basicData
                 })
@@ -1068,7 +1068,7 @@ $officerCount = $totalOfficers - $adminCount;
                         passwordData.append('new_password', $('#new_password').val());
                         passwordData.append('confirm_password', $('#confirm_password').val());
                         
-                        return fetch(window.location.pathname, {
+                        return fetch('manage_officers.php', {
                             method: 'POST',
                             body: passwordData
                         });
@@ -1105,7 +1105,7 @@ $officerCount = $totalOfficers - $adminCount;
                 });
             } else {
                 // Just update basic info without password change
-                fetch(window.location.pathname, {
+                fetch('manage_officers.php', {
                     method: 'POST',
                     body: formData
                 })
@@ -1171,7 +1171,7 @@ $officerCount = $totalOfficers - $adminCount;
             formData.append('action', 'delete');
             formData.append('officer_id', deleteOfficerId);
             
-            fetch(window.location.pathname, {
+            fetch('manage_officers.php', {
                 method: 'POST',
                 body: formData
             })

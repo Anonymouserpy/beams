@@ -5,7 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 if (!isset($_SESSION['officer_id'])) {
-    header("Location: ../../Login.php");
+    header("Location: ../../officer_Login.php");
     exit();
 }
 
