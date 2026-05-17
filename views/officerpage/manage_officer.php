@@ -17,6 +17,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit();
     }
 
+    if (!isset($_SESSION['officer_id'])) {
+    header("Location: ../../officer_Login.php");
+    exit();
+}
+
     function logAudit($conn, $officer_id, $action, $table_name, $record_id = null, $old_data = null, $new_data = null) {
         $ip_address = $_SERVER['REMOTE_ADDR'] ?? null;
         $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? null;
