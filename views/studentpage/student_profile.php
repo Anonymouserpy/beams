@@ -4,7 +4,7 @@ require "../../Connection/connection.php";
 
 // Check if student is logged in
 if (!isset($_SESSION['student_id'])) {
-    header("Location: ../../Login.php");
+    header("Location: ../../studentLogin.php");
     exit();
 }
 
