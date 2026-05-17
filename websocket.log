@@ -1,39 +1,3 @@
 Database connection failed: could not find driver
 Internal TCP socket listening on 127.0.0.1:8081
 WebSocket server started on port 8080
-New WebSocket connection (51)
-Connection 51 closed
-New WebSocket connection (83)
-Connection 83 closed
-New WebSocket connection (86)
-Connection 86 closed
-New WebSocket connection (89)
-Connection 89 closed
-New WebSocket connection (92)
-Connection 92 closed
-New WebSocket connection (97)
-Connection 97 closed
-New WebSocket connection (100)
-Connection 100 closed
-New WebSocket connection (103)
-Connection 103 closed
-New WebSocket connection (106)
-Connection 106 closed
-New WebSocket connection (109)
-Connection 109 closed
-New WebSocket connection (112)
-Connection 112 closed
-New WebSocket connection (115)
-Connection 115 closed
-New WebSocket connection (119)
-Connection 119 closed
-New WebSocket connection (122)
-New WebSocket connection (125)
-Connection 125 closed
-New WebSocket connection (128)
-Connection 128 closed
-New WebSocket connection (131)
-Connection 131 closed
-New WebSocket connection (134)
-Connection 134 closed
-Connection 122 closed
