@@ -44,7 +44,7 @@
                 <button type="submit" class="btn btn-primary w-100">Login</button>
             </form>
 
-            <a href="officer_registration.php" class="text-center mt-1 mb-3">Register as a New Officer</a>
+            <!-- <a href="officer_registration.php" class="text-center mt-1 mb-3">Register as a New Officer</a> -->
             <a href="index.php" class="text-center mt-1 mb-3">Go Back</a>
 
         </div>
