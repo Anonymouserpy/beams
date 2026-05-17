@@ -493,6 +493,10 @@ body {
             </li>
         </ul>
 
+        
+
+        <!-- Admin-only section -->
+        <?php if ($officerPosition === 'Admin'): ?>
         <div class="beams-nav-section-title">System</div>
         <ul class="beams-nav-list">
             <li class="beams-nav-item">
@@ -503,9 +507,7 @@ body {
                 </a>
             </li>
         </ul>
-
-        <!-- Admin-only section -->
-        <?php if ($officerPosition === 'Admin'): ?>
+        
         <div class="beams-nav-section-title">Administration</div>
         <ul class="beams-nav-list">
             <li class="beams-nav-item">
